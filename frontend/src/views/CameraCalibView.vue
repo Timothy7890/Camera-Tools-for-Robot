@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { vendors } from '../data/vendors'
 import RobotPlaceholder from '../components/RobotPlaceholder.vue'
+import RobotUnitPicker from '../components/RobotUnitPicker.vue'
 
 const activeVendorId = ref(vendors[0]?.id ?? null)
 
@@ -10,6 +11,23 @@ const activeVendor = computed(() => vendors.find((v) => v.id === activeVendorId.
 // 鼠标移入厂家即切换，无需点击
 function selectVendor(vendor) {
   activeVendorId.value = vendor.id
+}
+
+// 点击机型卡片 -> 弹出机器人编号选择
+const pickingRobot = ref(null)
+
+function openUnitPicker(robot) {
+  pickingRobot.value = robot
+}
+
+function closeUnitPicker() {
+  pickingRobot.value = null
+}
+
+function onUnitSelected(unit) {
+  // TODO(backend): 选中编号后加载该机器人的相机标定文件列表
+  console.log('[mock] 选中机器人编号:', unit)
+  closeUnitPicker()
 }
 </script>
 
@@ -44,7 +62,12 @@ function selectVendor(vendor) {
     <section class="main">
       <template v-if="activeVendor && activeVendor.robots.length">
         <div class="card-grid">
-          <article v-for="robot in activeVendor.robots" :key="robot.id" class="robot-card">
+          <article
+            v-for="robot in activeVendor.robots"
+            :key="robot.id"
+            class="robot-card"
+            @click="openUnitPicker(robot)"
+          >
             <div class="card-figure">
               <img v-if="robot.image" :src="robot.image" :alt="robot.name" />
               <RobotPlaceholder v-else :size="180" />
@@ -56,6 +79,14 @@ function selectVendor(vendor) {
       </template>
       <div v-else class="main-empty">该厂家机型待补充</div>
     </section>
+
+    <RobotUnitPicker
+      v-if="pickingRobot"
+      :robot="pickingRobot"
+      :vendor-name="activeVendor?.name ?? ''"
+      @close="closeUnitPicker"
+      @select="onUnitSelected"
+    />
   </div>
 </template>
 
@@ -166,6 +197,18 @@ function selectVendor(vendor) {
   padding: 36px 16px 32px;
   background: #f5f5f5;
   border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.robot-card:hover {
+  background: #f0f0f0;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.robot-card:hover .card-figure {
+  transform: scale(1.04);
 }
 
 .card-figure {
@@ -175,6 +218,7 @@ function selectVendor(vendor) {
   width: 200px;
   height: 220px;
   margin-bottom: 20px;
+  transition: transform 0.25s ease;
 }
 
 .card-figure img {
