@@ -20,3 +20,20 @@ export const vendors = [
     robots: [],
   },
 ]
+
+/**
+ * 根据机器人编号（如 'G1D-3001'）反查厂家与机型。
+ * 按机型名长度降序匹配前缀，避免 'G1-' 误匹配 'G1D-xxxx'。
+ * @returns {{ vendor: object, robot: object } | null}
+ */
+export function findRobotByUnitCode(unitCode) {
+  const candidates = []
+  for (const vendor of vendors) {
+    for (const robot of vendor.robots) {
+      candidates.push({ vendor, robot })
+    }
+  }
+  candidates.sort((a, b) => b.robot.name.length - a.robot.name.length)
+  const upper = String(unitCode ?? '').toUpperCase()
+  return candidates.find(({ robot }) => upper.startsWith(`${robot.name.toUpperCase()}-`)) ?? null
+}

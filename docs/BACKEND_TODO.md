@@ -33,16 +33,19 @@
 - **注意**：前端期望编号已按升序排好；若后端不保证顺序，在此函数内排序
 - **搜索**：目前在前端本地过滤（数量 ≤ 几百台足够）。若单机型编号超过数百台，改为把搜索词传给后端：`GET /api/robots/{robotId}/units?q=1336`
 - **建议接口**：`GET /api/robots/{robotId}/units` → `["H2-1336", "H2-1213", ...]`
-- **使用方**：`frontend/src/components/RobotUnitPicker.vue`（点击机型卡片弹出的编号选择框）
+- **使用方**：`frontend/src/components/RobotUnitPicker.vue`（点击机型卡片弹出的编号选择框，位于顶部导航悬停面板 `CalibMenuPanel.vue` 内）
 
-## 3. 选中机器人编号后的动作
+## 3. 机器人详情页（选中编号后跳转）
 
-- **前端位置**：`frontend/src/views/CameraCalibView.vue` → `onUnitSelected(unit)`
-- **现状**：仅 `console.log` 并关闭弹窗
-- **待对接**：加载并展示该机器人编号对应的相机标定文件列表（字段待定：文件名、标定时间、下载地址等）
-- **建议接口**：`GET /api/robots/units/{unitCode}/camera-calibrations`
+- **前端位置**：`frontend/src/views/RobotDetailView.vue`，路由 `/robots/:unitCode`（如 `/robots/H2-1336`）
+- **现状**：
+  - 顶部 hero 已完成：机型图片 + 厂家/机型 + 编号大标题。机型信息由 `findRobotByUnitCode()` 按编号前缀在前端本地反查
+  - 内容区为占位（"内容区待设计"）
+- **待对接**：
+  - 直接访问该 URL 时（刷新 / 分享链接）需要校验编号是否存在；目前前缀匹配不到时显示"未知机型"。建议接口：`GET /api/robots/units/{unitCode}` 返回编号、机型、厂家、状态等
+  - 内容区加载该机器人的相机标定文件与工具标定文件。建议接口：`GET /api/robots/units/{unitCode}/calibrations`，返回中区分 `camera` / `tool` 两类，字段待定（文件名、标定时间、下载地址等）
 
 ## 4. 尚未开始的页面
 
+- **首页**（`frontend/src/views/HomeView.vue`）：空白，目前仅作为导航悬停面板下方的底层页面
 - **使用说明**（`frontend/src/views/GuideView.vue`）：空白
-- **工具标定文件**（`frontend/src/views/ToolCalibView.vue`）：空白，结构预计与相机标定文件一致

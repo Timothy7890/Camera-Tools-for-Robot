@@ -1,22 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import HomeView from '../views/HomeView.vue'
 import GuideView from '../views/GuideView.vue'
-import CameraCalibView from '../views/CameraCalibView.vue'
-import ToolCalibView from '../views/ToolCalibView.vue'
+import RobotDetailView from '../views/RobotDetailView.vue'
 
 const routes = [
-  { path: '/', redirect: '/camera-calibration' },
+  { path: '/', name: 'home', component: HomeView },
   { path: '/guide', name: 'guide', component: GuideView, meta: { title: '使用说明' } },
   {
-    path: '/camera-calibration',
-    name: 'camera-calibration',
-    component: CameraCalibView,
-    meta: { title: '相机标定文件' },
-  },
-  {
-    path: '/tool-calibration',
-    name: 'tool-calibration',
-    component: ToolCalibView,
-    meta: { title: '工具标定文件' },
+    // 选中某台机器人编号后的详情页，如 /robots/H2-1336
+    path: '/robots/:unitCode',
+    name: 'robot-detail',
+    component: RobotDetailView,
+    meta: { title: '标定文件' },
   },
 ]
 

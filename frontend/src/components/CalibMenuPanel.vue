@@ -1,8 +1,12 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { vendors } from '../data/vendors'
-import RobotPlaceholder from '../components/RobotPlaceholder.vue'
-import RobotUnitPicker from '../components/RobotUnitPicker.vue'
+import RobotPlaceholder from './RobotPlaceholder.vue'
+import RobotUnitPicker from './RobotUnitPicker.vue'
+
+// 顶部导航「相机与工具标定文件」悬停展开的面板：
+// 左侧机器人厂家，右侧机型卡片；点击卡片弹出编号选择，选中后向外抛出 select-unit。
+const emit = defineEmits(['select-unit'])
 
 const activeVendorId = ref(vendors[0]?.id ?? null)
 
@@ -25,14 +29,13 @@ function closeUnitPicker() {
 }
 
 function onUnitSelected(unit) {
-  // TODO(backend): 选中编号后加载该机器人的相机标定文件列表
-  console.log('[mock] 选中机器人编号:', unit)
   closeUnitPicker()
+  emit('select-unit', unit)
 }
 </script>
 
 <template>
-  <div class="page">
+  <div class="panel">
     <aside class="sidebar">
       <div class="sidebar-title">机器人厂家</div>
 
@@ -91,8 +94,7 @@ function onUnitSelected(unit) {
 </template>
 
 <style scoped>
-.page {
-  flex: 1;
+.panel {
   display: flex;
   min-height: 0;
 }
@@ -185,16 +187,16 @@ function onUnitSelected(unit) {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
-  max-width: 760px;
+  max-width: 720px;
 }
 
 .robot-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 36px 16px 32px;
+  padding: 28px 16px 26px;
   background: #f5f5f5;
   border-radius: 4px;
   cursor: pointer;
@@ -215,9 +217,9 @@ function onUnitSelected(unit) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 200px;
-  height: 220px;
-  margin-bottom: 20px;
+  width: 180px;
+  height: 190px;
+  margin-bottom: 16px;
   transition: transform 0.25s ease;
 }
 
