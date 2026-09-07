@@ -37,15 +37,26 @@
 
 ## 3. 机器人详情页（选中编号后跳转）
 
-- **前端位置**：`frontend/src/views/RobotDetailView.vue`，路由 `/robots/:unitCode`（如 `/robots/H2-1336`）
+- **前端位置**：`frontend/src/views/RobotDetailView.vue`，路由 `/robots/:unitCode/:section?`（如 `/robots/H2-1336/extrinsic`）
 - **现状**：
   - 顶部 hero 已完成：机型图片 + 厂家/机型 + 编号大标题。机型信息由 `findRobotByUnitCode()` 按编号前缀在前端本地反查
-  - 内容区为占位（"内容区待设计"）
+  - 三个分类（定义在 `frontend/src/data/calibSections.js`）在同一页面内连续排列，左侧菜单随滚动高亮当前栏目，点击菜单平滑滚动到对应位置；路由参数 `section` 仅用于打开链接时初始定位：
+    - `extrinsic` 外参标定文件
+    - `intrinsic` 内参标定文件
+    - `camera-transform` 内部相机转换文件
+  - 右侧内容区为占位（"待开发"）
 - **待对接**：
   - 直接访问该 URL 时（刷新 / 分享链接）需要校验编号是否存在；目前前缀匹配不到时显示"未知机型"。建议接口：`GET /api/robots/units/{unitCode}` 返回编号、机型、厂家、状态等
-  - 内容区加载该机器人的相机标定文件与工具标定文件。建议接口：`GET /api/robots/units/{unitCode}/calibrations`，返回中区分 `camera` / `tool` 两类，字段待定（文件名、标定时间、下载地址等）
+  - 内容区按分类加载文件列表。建议接口：`GET /api/robots/units/{unitCode}/calibrations?type=extrinsic|intrinsic|camera-transform`，字段待定（文件名、标定时间、下载地址、是否当前生效等）
 
-## 4. 尚未开始的页面
+## 4. 机器人模型文件（STL / URDF）
 
-- **首页**（`frontend/src/views/HomeView.vue`）：空白，目前仅作为导航悬停面板下方的底层页面
+- **存放位置**：仓库根目录 `models/<vendorId>/<robotId>/{meshes,urdf}/`，目录约定见 `models/README.md`
+- **现状**：仅目录骨架，无实体文件；前端不直接读取
+- **待对接**：若需在网页中预览 3D 模型或下载，由后端提供静态文件服务或对象存储地址。建议接口：`GET /api/robots/{robotId}/models` 返回文件列表与下载 URL
+- **注意**：放入模型文件前先启用 Git LFS（见 `models/README.md`），否则仓库会迅速膨胀
+
+## 5. 尚未开始的页面
+
+- **首页**（`frontend/src/views/HomeView.vue`）：已有标题与三个分类卡片（外参 / 内参 / 内部相机转换），卡片内容为"待开发"占位
 - **使用说明**（`frontend/src/views/GuideView.vue`）：空白

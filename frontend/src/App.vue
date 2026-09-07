@@ -3,9 +3,20 @@ import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import logo from './assets/bwton-logo.png'
 import CalibMenuPanel from './components/CalibMenuPanel.vue'
+import { useLastUnit } from './composables/useLastUnit'
 
 const router = useRouter()
 const route = useRoute()
+const { lastUnit, setLastUnit } = useLastUnit()
+
+// 进入详情页时记录当前机器人（包括直接打开链接的情况）
+watch(
+  () => route.params.unitCode,
+  (code) => {
+    if (route.name === 'robot-detail' && code) setLastUnit(String(code))
+  },
+  { immediate: true },
+)
 
 // 「相机与工具标定文件」为悬停展开的面板，不是独立页面
 const menuOpen = ref(false)
@@ -14,6 +25,15 @@ let closeTimer = null
 function openMenu() {
   clearTimeout(closeTimer)
   menuOpen.value = true
+}
+
+// 鼠标移入「相机与工具标定文件」：展开面板；
+// 若之前已选过机器人且当前不在其详情页，则恢复到该机器人的页面（保持之前的选择）
+function hoverCalib() {
+  openMenu()
+  if (lastUnit.value && route.name !== 'robot-detail') {
+    router.push({ name: 'robot-detail', params: { unitCode: lastUnit.value } })
+  }
 }
 
 // 离开后稍作延迟再关闭，避免鼠标在页签与面板之间移动时闪烁
@@ -40,8 +60,6 @@ function onUnitSelected(unit) {
   router.push({ name: 'robot-detail', params: { unitCode: unit } })
 }
 
-// 路由变化时收起面板
-watch(() => route.fullPath, closeMenu)
 </script>
 
 <template>
@@ -63,8 +81,8 @@ watch(() => route.fullPath, closeMenu)
           <button
             class="nav-link nav-trigger"
             :class="{ 'is-open': menuOpen, 'is-active': route.name === 'robot-detail' }"
-            @mouseenter="openMenu"
-            @click="openMenu"
+            @mouseenter="hoverCalib"
+            @click="hoverCalib"
           >
             相机与工具标定文件
           </button>
