@@ -1,0 +1,133 @@
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from calib_cloud.app import create_app
+from calib_cloud.config import Settings
+
+TOKEN = "test-token"
+
+
+def make_client(tmp_path: Path, **overrides) -> TestClient:
+    kwargs = dict(data_dir=tmp_path / "data", api_token=TOKEN, frontend_dist=tmp_path / "nodist")
+    kwargs.update(overrides)
+    settings = Settings(**kwargs)
+    return TestClient(create_app(settings))
+
+
+def manifest(run_id="run-1", status="draft", artifact_type="extrinsic", files=None, unit="H2-1336"):
+    files = files or {"handeye_result_left.json": b'{"T_cam2base": []}'}
+    return {
+        "schema": "calib-manifest/1",
+        "unit_code": unit,
+        "vendor": "unitree",
+        "robot_model": "h2",
+        "type": artifact_type,
+        "camera_role": "head",
+        "camera_label": "头部相机",
+        "camera_serial": "CP0X663000B7",
+        "arm": "right",
+        "run_id": run_id,
+        "tool": "hand_eye_2D",
+        "tool_version": "abc123",
+        "created_at": "2026-09-10T07:13:10+00:00",
+        "quality": {"num_samples": 31, "num_inliers": 11},
+        "files": [{"name": n, "bytes": len(b), "sha256": hashlib.sha256(b).hexdigest()} for n, b in files.items()],
+        "status": status,
+        "cloud": {"pushed": False, "pushed_at": None, "remote_id": None},
+    }, files
+
+
+def upload(client, m, files, token=TOKEN):
+    return client.post(
+        f"/api/robots/units/{m['unit_code']}/calibrations",
+        data={"manifest": json.dumps(m)},
+        files=[("files", (name, body, "application/json")) for name, body in files.items()],
+        headers={"Authorization": f"Bearer {token}"} if token else {},
+    )
+
+
+def test_upload_list_download_and_active_semantics(tmp_path):
+    c = make_client(tmp_path)
+    m1, f1 = manifest("run-1", status="active")
+    r = upload(c, m1, f1)
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+
+    # 编号自动登记，机型列表可见
+    assert c.get("/api/robots/h2/units").json() == ["H2-1336"]
+    assert c.get("/api/vendors").json()[0]["robots"][0]["unit_count"] == 1
+
+    detail = c.get("/api/robots/units/H2-1336").json()
+    assert detail["counts"]["extrinsic"] == 1
+    assert detail["active"]["extrinsic"]["head"]["run_id"] == "run-1"
+
+    items = c.get("/api/robots/units/H2-1336/calibrations?type=extrinsic").json()["items"]
+    assert [i["run_id"] for i in items] == ["run-1"]
+    assert c.get("/api/robots/units/H2-1336/calibrations?type=camera-transform").json()["items"] == []
+
+    body = c.get(f"/api/robots/units/H2-1336/calibrations/{cid}/files/handeye_result_left.json").content
+    assert body == f1["handeye_result_left.json"]
+    full = c.get(f"/api/robots/units/H2-1336/calibrations/{cid}").json()
+    assert full["cloud"]["pushed"] is True and full["cloud"]["remote_id"] == cid
+
+    # 第二次生效项把第一次挤成 superseded
+    m2, f2 = manifest("run-2", status="active")
+    assert upload(c, m2, f2).status_code == 201
+    statuses = {i["run_id"]: i["status"] for i in c.get("/api/robots/units/H2-1336/calibrations").json()["items"]}
+    assert statuses == {"run-1": "superseded", "run-2": "active"}
+
+    # 重复上传同一 run = 覆盖，不新增
+    r = upload(c, m2, f2)
+    assert r.status_code == 200 and r.json()["created"] is False
+    assert len(c.get("/api/robots/units/H2-1336/calibrations").json()["items"]) == 2
+
+    # PATCH 状态回切
+    r = c.patch(f"/api/robots/units/H2-1336/calibrations/{cid}", json={"status": "active"},
+                headers={"Authorization": f"Bearer {TOKEN}"})
+    assert r.status_code == 200
+    statuses = {i["run_id"]: i["status"] for i in c.get("/api/robots/units/H2-1336/calibrations").json()["items"]}
+    assert statuses == {"run-1": "active", "run-2": "superseded"}
+
+    # 删除
+    r = c.delete(f"/api/robots/units/H2-1336/calibrations/{cid}", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert r.status_code == 200
+    assert c.get(f"/api/robots/units/H2-1336/calibrations/{cid}").status_code == 404
+
+
+def test_auth_and_validation(tmp_path):
+    c = make_client(tmp_path)
+    m, f = manifest()
+    assert upload(c, m, f, token=None).status_code == 401
+    assert upload(c, m, f, token="wrong").status_code == 401
+
+    # sha256 不一致
+    bad = {"handeye_result_left.json": b"tampered"}
+    assert upload(c, m, bad).status_code == 422
+
+    # 声明了却没传
+    assert upload(c, m, {}).status_code == 422
+
+    # unit_code 与路径不一致
+    r = c.post("/api/robots/units/H2-9999/calibrations", data={"manifest": json.dumps(m)},
+               files=[("files", (n, b)) for n, b in f.items()], headers={"Authorization": f"Bearer {TOKEN}"})
+    assert r.status_code == 422
+
+    # 未知编号
+    assert c.get("/api/robots/units/H2-0000").status_code == 404
+
+
+def test_write_disabled_without_token_config(tmp_path):
+    c = make_client(tmp_path, api_token="")
+    m, f = manifest()
+    assert upload(c, m, f, token="anything").status_code == 503
+    assert c.get("/api/health").json()["write_enabled"] is False
+
+
+def test_read_can_require_token(tmp_path):
+    c = make_client(tmp_path, read_requires_token=True)
+    assert c.get("/api/vendors").status_code == 401
+    assert c.get("/api/vendors", headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 200

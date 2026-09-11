@@ -1,38 +1,57 @@
-// 机器人相关接口。
-// 当前全部为前端模拟数据，待后端提供接口后替换实现（见 docs/BACKEND_TODO.md）。
+// 机器人 / 标定产物接口。后端见 backend/calib_cloud/app.py。
+// 开发时由 vite 代理 /api → 后端（vite.config.js）；生产由后端同源托管。
 
-/**
- * 生成确定性的模拟编号列表（每次刷新结果一致，便于调试）
- * @param {string} prefix 编号前缀，如 'G1'
- * @param {number} count 数量
- * @param {number} seed 随机种子
- */
-function mockUnits(prefix, count, seed) {
-  const set = new Set()
-  let s = seed
-  while (set.size < count) {
-    s = (s * 1103515245 + 12345) & 0x7fffffff
-    set.add(1000 + (s % 9000))
+const BASE = import.meta.env.VITE_API_BASE || ''
+
+async function request(path, options = {}) {
+  const res = await fetch(BASE + path, { headers: { Accept: 'application/json' }, ...options })
+  let body = null
+  try {
+    body = await res.json()
+  } catch {
+    body = null
   }
-  return [...set].sort((a, b) => a - b).map((n) => `${prefix}-${n}`)
+  if (!res.ok) {
+    const msg = body?.detail?.error || body?.detail?.message || body?.error || res.statusText || `HTTP ${res.status}`
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+  }
+  return body
 }
 
-// TODO(backend): 替换为真实接口，如 GET /api/robots/{robotId}/units
-const MOCK_ROBOT_UNITS = {
-  h2: ['H2-1063', 'H2-1213', 'H2-1336'],
-  g1: mockUnits('G1', 20, 7),
-  g1d: mockUnits('G1D', 40, 42),
+/** 厂家 / 机型（含每个机型已登记的机器人数 unit_count） */
+export function fetchVendors() {
+  return request('/api/vendors')
 }
-
-const MOCK_DELAY_MS = 300
 
 /**
- * 获取某机型下所有机器人编号
+ * 获取某机型下所有机器人编号（后端已按编号升序）
  * @param {string} robotId 机型 id（如 'h2'）
- * @returns {Promise<string[]>} 机器人编号列表（按编号升序）
+ * @returns {Promise<string[]>}
  */
 export function fetchRobotUnits(robotId) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_ROBOT_UNITS[robotId] ?? []), MOCK_DELAY_MS)
-  })
+  return request(`/api/robots/${encodeURIComponent(robotId)}/units`)
+}
+
+/** 机器人详情：{unit_code, vendor, robot_model, counts{type:n}, active{type:{camera_role: item}}} */
+export function fetchUnit(unitCode) {
+  return request(`/api/robots/units/${encodeURIComponent(unitCode)}`)
+}
+
+/**
+ * 某机器人的标定产物列表
+ * @param {string} unitCode
+ * @param {string} [type] extrinsic | intrinsic | camera-transform
+ */
+export async function fetchCalibrations(unitCode, type) {
+  const q = type ? `?type=${encodeURIComponent(type)}` : ''
+  const data = await request(`/api/robots/units/${encodeURIComponent(unitCode)}/calibrations${q}`)
+  return data.items
+}
+
+export function fetchCalibrationManifest(unitCode, id) {
+  return request(`/api/robots/units/${encodeURIComponent(unitCode)}/calibrations/${id}`)
+}
+
+export function calibrationFileUrl(unitCode, id, name) {
+  return `${BASE}/api/robots/units/${encodeURIComponent(unitCode)}/calibrations/${id}/files/${encodeURIComponent(name)}`
 }

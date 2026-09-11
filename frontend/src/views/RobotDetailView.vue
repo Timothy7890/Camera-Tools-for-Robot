@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { findRobotByUnitCode } from '../data/vendors'
 import { calibSections, findSection } from '../data/calibSections'
 import RobotPlaceholder from '../components/RobotPlaceholder.vue'
+import CalibrationList from '../components/CalibrationList.vue'
+import { fetchCalibrations } from '../api/robots'
 
 const route = useRoute()
 const router = useRouter()
@@ -78,6 +80,43 @@ watch(unitCode, () => {
   window.scrollTo({ top: 0 })
   onScroll()
 })
+
+// ---- 标定产物：一次拉全量，按栏目类型分组 ----
+// manifest 里的类型用下划线，栏目 id 用连字符
+const SECTION_TYPE = { extrinsic: 'extrinsic', intrinsic: 'intrinsic', 'camera-transform': 'camera_transform' }
+
+const calibLoading = ref(false)
+const calibError = ref('')
+const calibItems = ref([])
+
+const itemsBySection = computed(() => {
+  const out = {}
+  for (const section of calibSections) out[section.id] = []
+  for (const item of calibItems.value) {
+    const sid = Object.keys(SECTION_TYPE).find((k) => SECTION_TYPE[k] === item.type)
+    if (sid) out[sid].push(item)
+  }
+  return out
+})
+
+async function loadCalibrations() {
+  const code = unitCode.value
+  calibLoading.value = true
+  calibError.value = ''
+  try {
+    const items = await fetchCalibrations(code)
+    if (code === unitCode.value) calibItems.value = items
+  } catch (e) {
+    if (code === unitCode.value) {
+      calibItems.value = []
+      calibError.value = `加载失败：${e.message || e}`
+    }
+  } finally {
+    if (code === unitCode.value) calibLoading.value = false
+  }
+}
+
+watch(unitCode, loadCalibrations, { immediate: true })
 </script>
 
 <template>
@@ -131,11 +170,12 @@ watch(unitCode, () => {
             <p class="block-desc">{{ section.desc }}</p>
           </header>
 
-          <!-- TODO(backend): 加载 unitCode + section.id 对应的标定文件列表 -->
-          <div class="placeholder">
-            <div class="placeholder-badge">待开发</div>
-            <p class="placeholder-text">{{ unitCode }} 的{{ section.name }}列表将在此展示。</p>
-          </div>
+          <CalibrationList
+            :unit-code="unitCode"
+            :items="itemsBySection[section.id]"
+            :loading="calibLoading"
+            :error="calibError"
+          />
         </section>
       </main>
     </div>
@@ -304,30 +344,4 @@ watch(unitCode, () => {
   color: #888;
 }
 
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  min-height: 320px;
-  padding: 48px 24px;
-  border: 1px dashed #e8e8e8;
-  border-radius: 6px;
-  text-align: center;
-}
-
-.placeholder-badge {
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: #f0f0f0;
-  font-size: 12px;
-  color: #666;
-}
-
-.placeholder-text {
-  margin: 0;
-  font-size: 13px;
-  color: #aaa;
-}
 </style>

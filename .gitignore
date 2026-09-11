@@ -35,3 +35,6 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
+
+# 云端后端运行数据（SQLite + 产物文件）
+data/

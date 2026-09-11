@@ -1,0 +1,9 @@
+[project]
+name = "calib-cloud"
+version = "0.1.0"
+description = "相机标定管理平台云端后端"
+requires-python = ">=3.10"
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
