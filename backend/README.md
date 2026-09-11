@@ -7,22 +7,24 @@
 - 同 `(unit_code, type, camera_role, run_id)` 重复上传 = 覆盖，幂等，机器人侧可放心重试。
 - "生效中"以机器人侧为准：推送 `status=active` 的产物时，云端自动把同位置其他 active 改为 `superseded`。
 
-## 部署（Docker，推荐）
+## 部署（systemd）
 
 ```bash
-git clone <本仓库> && cd Camera-Tools-for-Robot
-cp .env.example .env
-# 编辑 .env：CALIB_API_TOKEN 改成随机串（openssl rand -hex 32）；公网建议 CALIB_READ_REQUIRES_TOKEN=1
-docker compose up -d --build
+git clone <本仓库> /opt/calib-cloud && cd /opt/calib-cloud
+sudo bash deploy/install.sh
+# 脚本会：生成 .env（随机 token，打印出来请保存）→ npm 构建前端 → 创建 backend/.venv 并装依赖
+# → 安装并启动 /etc/systemd/system/calib-cloud.service
 curl http://127.0.0.1:8080/api/health     # {"ok":true,...,"write_enabled":true}
 ```
 
-镜像里先 `npm run build` 前端再由后端同源托管，浏览器打开 `http://<服务器>:8080/` 即是网页。
-产物存到宿主机 `./data`。建议前面再放 Nginx/Caddy 做 HTTPS 反代（后端已开 `--proxy-headers`）。
+- 单元模板 `deploy/calib-cloud.service`，占位符 `__APP_DIR__` / `__USER__` 由脚本替换；手工装就自己 sed。
+- 配置全部在 `.env`（`EnvironmentFile`），改完 `sudo systemctl restart calib-cloud`。
+- 日志 `journalctl -u calib-cloud -f`；更新 `git pull && (cd frontend && npm run build) && sudo systemctl restart calib-cloud`。
+- 后端同源托管 `frontend/dist`，浏览器打开 `http://<服务器>:8080/` 即是网页。
+- 建议前面放 Nginx/Caddy 做 HTTPS 反代（uvicorn 已开 `--proxy-headers`），并把 `CALIB_HOST` 改成 `127.0.0.1`。
+- 服务器上没 npm 时，在别处 `npm run build` 后把 `frontend/dist` 拷到服务器同路径。
 
-更新：`git pull && docker compose up -d --build`。
-
-## 不用 Docker
+## 手动运行（不装服务）
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
@@ -31,15 +33,14 @@ export CALIB_API_TOKEN=... CALIB_DATA_DIR=/srv/calib-cloud/data
 uvicorn calib_cloud.main:app --host 0.0.0.0 --port 8080
 ```
 
-后端会自动托管 `../frontend/dist`（可用 `CALIB_FRONTEND_DIST` 改路径）。
-
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `CALIB_API_TOKEN` | 空 | 写接口 Bearer token。空 = 拒绝所有上传（503） |
 | `CALIB_READ_REQUIRES_TOKEN` | `0` | `1` 时读接口也要 token |
-| `CALIB_DATA_DIR` | `<repo>/data` | 数据目录（容器内 `/data`） |
+| `CALIB_HOST` / `CALIB_PORT` | `0.0.0.0` / `8080` | 监听地址与端口（仅 systemd 单元使用） |
+| `CALIB_DATA_DIR` | `<repo>/data` | 数据目录 |
 | `CALIB_FRONTEND_DIST` | `<repo>/frontend/dist` | 前端构建目录，存在则托管 |
 | `CALIB_CORS_ORIGINS` | `*` | 前后端分开部署时填前端域名 |
 | `CALIB_MAX_FILE_MB` | `64` | 单文件上传上限 |

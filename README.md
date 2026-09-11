@@ -7,9 +7,11 @@
 - `docs/BACKEND_TODO.md` 前后端对接状态
 - `models/` 机型模型文件目录约定
 
-一键部署：
+部署到云服务器（systemd）：
 
 ```bash
-cp .env.example .env && vi .env      # 设置 CALIB_API_TOKEN
-docker compose up -d --build         # http://<服务器>:8080
+sudo bash deploy/install.sh          # 生成 .env + 构建前端 + venv + 安装并启动 calib-cloud.service
+curl http://127.0.0.1:8080/api/health
 ```
+
+详见 [backend/README.md](backend/README.md)。

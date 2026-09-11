@@ -236,7 +236,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         row_or_404(unit_code, calib_id)
         return {"ok": True, "deleted": store.delete(calib_id)}
 
-    # ---------- 前端静态托管（单容器部署） ----------
+    # ---------- 前端静态托管（前后端同源部署） ----------
 
     dist = settings.frontend_dist
     if (dist / "index.html").is_file():
