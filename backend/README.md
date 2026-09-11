@@ -20,9 +20,31 @@ curl http://127.0.0.1:8080/api/health     # {"ok":true,...,"write_enabled":true}
 - 单元模板 `deploy/calib-cloud.service`，占位符 `__APP_DIR__` / `__USER__` 由脚本替换；手工装就自己 sed。
 - 配置全部在 `.env`（`EnvironmentFile`），改完 `sudo systemctl restart calib-cloud`。
 - 日志 `journalctl -u calib-cloud -f`；更新 `git pull && (cd frontend && npm run build) && sudo systemctl restart calib-cloud`。
-- 后端同源托管 `frontend/dist`，浏览器打开 `http://<服务器>:8080/` 即是网页。
-- 建议前面放 Nginx/Caddy 做 HTTPS 反代（uvicorn 已开 `--proxy-headers`），并把 `CALIB_HOST` 改成 `127.0.0.1`。
+- 后端同源托管 `frontend/dist`，网页和 `/api` 同一个端口。
 - 服务器上没 npm 时，在别处 `npm run build` 后把 `frontend/dist` 拷到服务器同路径。
+
+## 域名 + HTTPS（Nginx）
+
+`.env` 默认 `CALIB_HOST=127.0.0.1`，对外由 Nginx 反代，与 netbridge 一样走 Let's Encrypt：
+
+```bash
+apt install nginx certbot
+sudo bash deploy/nginx/setup.sh                      # 默认域名 bwt.xingxingdiandian.xyz
+sudo DOMAIN=other.example.com EMAIL=me@x.com bash deploy/nginx/setup.sh
+curl https://bwt.xingxingdiandian.xyz/api/health
+```
+
+脚本会：无证书时先装临时 80 端口站点 → `certbot certonly --webroot` 签发 → 安装
+[`deploy/nginx/calib-cloud.conf`](../deploy/nginx/calib-cloud.conf)（80→443 跳转、全部反代到 127.0.0.1:8080、
+`client_max_body_size 256m`）→ 装续期 hook 自动 reload。
+
+```text
+/            Vue SPA（后端回 index.html）
+/assets/     前端静态资源，长缓存
+/api/        接口，关了 proxy_request_buffering 方便大文件上传
+```
+
+公网只开 `80/tcp`、`443/tcp`；`8080` 不要对外。机器人侧推送地址填 `https://bwt.xingxingdiandian.xyz`。
 
 ## 手动运行（不装服务）
 

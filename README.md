@@ -12,6 +12,8 @@
 ```bash
 sudo bash deploy/install.sh          # 生成 .env + 构建前端 + venv + 安装并启动 calib-cloud.service
 curl http://127.0.0.1:8080/api/health
+sudo bash deploy/nginx/setup.sh      # Nginx 反代 + Let's Encrypt，域名 bwt.xingxingdiandian.xyz
+curl https://bwt.xingxingdiandian.xyz/api/health
 ```
 
 详见 [backend/README.md](backend/README.md)。

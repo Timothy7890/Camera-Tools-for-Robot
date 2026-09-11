@@ -2,6 +2,9 @@
 # 一键安装为 systemd 服务（参考实现，按服务器实际情况调整）。
 # 用法：在仓库根目录执行  sudo bash deploy/install.sh
 # 需要：python3 (>=3.10, 含 venv)、node/npm (构建前端；已有 frontend/dist 时可跳过)。
+# 系统 python 太旧（如 Ubuntu 20.04 的 3.8）时用 uv 装一个：
+#   curl -LsSf https://astral.sh/uv/install.sh | sh && uv python install 3.12
+#   sudo PYTHON="$(uv python find 3.12)" bash deploy/install.sh
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,9 +20,21 @@ if [ ! -f "$APP_DIR/.env" ]; then
   cp "$APP_DIR/.env.example" "$APP_DIR/.env"
   TOKEN="$(openssl rand -hex 32 2>/dev/null || "$PYTHON" -c 'import secrets;print(secrets.token_hex(32))')"
   sed -i "s|^CALIB_API_TOKEN=.*|CALIB_API_TOKEN=$TOKEN|" "$APP_DIR/.env"
+  # 端口可用 CALIB_PORT=xxx 覆盖（同机已有别的服务占 8080 时）
+  if [ -n "${CALIB_PORT:-}" ]; then
+    sed -i "s|^CALIB_PORT=.*|CALIB_PORT=$CALIB_PORT|" "$APP_DIR/.env"
+  fi
   echo "==> 已生成 .env，写 token：$TOKEN（机器人侧推送要用，请保存）"
 else
   echo "==> 已有 .env，保留"
+fi
+
+PORT="$(grep -E '^CALIB_PORT=' "$APP_DIR/.env" | cut -d= -f2)"
+PORT="${PORT:-8080}"
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${PORT}$" && ! systemctl is-active -q "$SERVICE"; then
+  echo "!! 端口 $PORT 已被其他进程占用，请改 .env 里的 CALIB_PORT 后重跑（或首装时 CALIB_PORT=8090 sudo bash deploy/install.sh）" >&2
+  ss -ltnp | grep -E "[:.]${PORT} " >&2 || true
+  exit 1
 fi
 
 # 2. 前端
@@ -55,8 +70,7 @@ systemctl enable --now "$SERVICE"
 sleep 1
 systemctl --no-pager --lines=5 status "$SERVICE" || true
 
-PORT="$(grep -E '^CALIB_PORT=' "$APP_DIR/.env" | cut -d= -f2)"
 echo
-echo "==> 完成。健康检查：curl http://127.0.0.1:${PORT:-8080}/api/health"
+echo "==> 完成。健康检查：curl http://127.0.0.1:${PORT}/api/health"
 echo "    日志：journalctl -u $SERVICE -f"
 echo "    更新：git pull && (cd frontend && npm run build) && sudo systemctl restart $SERVICE"
