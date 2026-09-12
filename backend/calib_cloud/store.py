@@ -1,8 +1,8 @@
 """SQLite + 本地文件系统的产物存储。
 
-表 calibrations：一行 = 一个产物包（对应机器人侧 calibrations/<type>/<camera_role>/<run_id>/manifest.json）。
-唯一键 (unit_code, type, camera_role, run_id)，重复上传视为覆盖（幂等）。
-文件放 <data_dir>/files/<unit_code>/<type>/<camera_role>/<run_id>/<name>。
+表 calibrations：一行 = 一个产物包（对应机器人侧 calibrations/<type>/<subject_key>/<run_id>/manifest.json）。
+唯一键 (unit_code, type, subject_key, run_id)，重复上传视为覆盖（幂等）。
+文件放 <data_dir>/files/<unit_code>/<type>/<subject_key>/<run_id>/<name>。
 
 "生效"语义与机器人侧一致：同一 (unit_code, type, camera_role) 下最多一个 active，
 其余曾经 active 的变为 superseded。机器人侧是真相源，云端只记录它推送过来的状态。
@@ -18,7 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-ARTIFACT_TYPES = ("extrinsic", "intrinsic", "camera_transform")
+CAMERA_ARTIFACT_TYPES = ("extrinsic", "intrinsic", "camera_transform")
+HAND_ARTIFACT_TYPES = ("hand_mount", "tcp_profile")
+ARTIFACT_TYPES = (*CAMERA_ARTIFACT_TYPES, *HAND_ARTIFACT_TYPES)
 # 前端路由用连字符（camera-transform），manifest 用下划线；两种都接受
 TYPE_ALIASES = {"camera-transform": "camera_transform"}
 STATUSES = ("draft", "active", "superseded")
@@ -30,6 +32,9 @@ CREATE TABLE IF NOT EXISTS calibrations (
     vendor        TEXT,
     robot_model   TEXT,
     type          TEXT NOT NULL,
+    artifact_id   TEXT,
+    subject_key   TEXT,
+    subject       TEXT,
     camera_role   TEXT NOT NULL,
     camera_label  TEXT,
     camera_serial TEXT,
@@ -70,6 +75,37 @@ def normalize_type(value: str | None) -> str | None:
     return value if value in ARTIFACT_TYPES else None
 
 
+def manifest_subject(manifest: dict[str, Any], artifact_type: str) -> tuple[dict[str, Any], str]:
+    """Validate a v1/v2 subject and return (subject, canonical subject_key)."""
+    raw = manifest.get("subject")
+    subject = dict(raw) if isinstance(raw, dict) else {}
+    if artifact_type in CAMERA_ARTIFACT_TYPES:
+        camera_role = str(subject.get("camera_role") or manifest.get("camera_role") or "").strip()
+        if not camera_role:
+            raise ValueError("相机产物 manifest 缺少 subject.camera_role / camera_role")
+        subject.setdefault("kind", "camera")
+        subject.setdefault("unit_code", manifest.get("unit_code"))
+        subject["camera_role"] = camera_role
+        subject.setdefault("camera_serial", manifest.get("camera_serial"))
+        canonical_key = camera_role
+    else:
+        arm = str(subject.get("arm") or manifest.get("arm") or "").strip()
+        hand_id = str(subject.get("hand_id") or manifest.get("hand_id") or "").strip()
+        if not arm or not hand_id:
+            raise ValueError("手部产物 manifest 缺少 subject.arm / subject.hand_id")
+        subject.setdefault("kind", "hand")
+        subject.setdefault("unit_code", manifest.get("unit_code"))
+        subject["arm"] = arm
+        subject["hand_id"] = hand_id
+        subject.setdefault("hand_serial", manifest.get("hand_serial"))
+        canonical_key = f"{arm}__{hand_id}"
+    supplied_key = str(manifest.get("subject_key") or "").strip()
+    if supplied_key and supplied_key != canonical_key:
+        raise ValueError(
+            f"manifest.subject_key={supplied_key!r} 与 subject 推导值 {canonical_key!r} 不一致")
+    return subject, canonical_key
+
+
 class Store:
     def __init__(self, db_path: Path, files_dir: Path) -> None:
         self.db_path = Path(db_path)
@@ -81,15 +117,39 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
+        self._migrate_v2_columns()
         self._conn.commit()
+
+    def _migrate_v2_columns(self) -> None:
+        """Add v2 identity columns without rebuilding existing production DBs."""
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(calibrations)")}
+        additions = {
+            "artifact_id": "TEXT",
+            "subject_key": "TEXT",
+            "subject": "TEXT",
+        }
+        for name, sql_type in additions.items():
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE calibrations ADD COLUMN {name} {sql_type}")
+        self._conn.execute(
+            "UPDATE calibrations SET subject_key=camera_role WHERE subject_key IS NULL OR subject_key=''"
+        )
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_calib_subject "
+            "ON calibrations (unit_code, type, subject_key, run_id)"
+        )
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_calib_artifact_id "
+            "ON calibrations (artifact_id) WHERE artifact_id IS NOT NULL"
+        )
 
     def close(self) -> None:
         self._conn.close()
 
     # ---------- 路径 ----------
 
-    def artifact_dir(self, unit_code: str, artifact_type: str, camera_role: str, run_id: str) -> Path:
-        return self.files_dir / unit_code / artifact_type / camera_role / run_id
+    def artifact_dir(self, unit_code: str, artifact_type: str, subject_key: str, run_id: str) -> Path:
+        return self.files_dir / unit_code / artifact_type / subject_key / run_id
 
     # ---------- 写 ----------
 
@@ -99,24 +159,31 @@ class Store:
         artifact_type = normalize_type(manifest.get("type"))
         if artifact_type is None:
             raise ValueError(f"未知产物类型 {manifest.get('type')!r}")
-        camera_role = str(manifest.get("camera_role") or "")
+        subject, subject_key = manifest_subject(manifest, artifact_type)
+        if artifact_type in CAMERA_ARTIFACT_TYPES:
+            camera_role = str(subject["camera_role"])
+        else:
+            camera_role = subject_key  # 兼容旧数据库 NOT NULL/唯一键，API 输出会隐藏
         run_id = str(manifest.get("run_id") or "")
-        if not camera_role or not run_id:
-            raise ValueError("manifest 缺少 camera_role / run_id")
+        if not subject_key or not run_id:
+            raise ValueError("manifest 缺少 subject_key / run_id")
         status = str(manifest.get("status") or "draft")
         if status not in STATUSES:
             status = "draft"
         ts = now_iso()
         with self._lock:
             existing = self._conn.execute(
-                "SELECT id FROM calibrations WHERE unit_code=? AND type=? AND camera_role=? AND run_id=?",
-                (unit_code, artifact_type, camera_role, run_id),
+                "SELECT id FROM calibrations WHERE unit_code=? AND type=? AND subject_key=? AND run_id=?",
+                (unit_code, artifact_type, subject_key, run_id),
             ).fetchone()
             values = dict(
                 unit_code=unit_code,
                 vendor=manifest.get("vendor"),
                 robot_model=manifest.get("robot_model"),
                 type=artifact_type,
+                artifact_id=manifest.get("artifact_id"),
+                subject_key=subject_key,
+                subject=json.dumps(subject, ensure_ascii=False),
                 camera_role=camera_role,
                 camera_label=manifest.get("camera_label"),
                 camera_serial=manifest.get("camera_serial"),
@@ -146,7 +213,7 @@ class Store:
                 row_id = cur.lastrowid
                 created = True
             if status == "active":
-                self._supersede_others(unit_code, artifact_type, camera_role, row_id)
+                self._supersede_others(unit_code, artifact_type, subject_key, row_id)
             self._touch_unit(unit_code, manifest.get("vendor"), manifest.get("robot_model"), ts)
             self._conn.commit()
         return self.get(row_id), created
@@ -163,7 +230,7 @@ class Store:
             manifest["status"] = status
             if status == "active":
                 manifest["activated_at"] = ts
-                self._supersede_others(row["unit_code"], row["type"], row["camera_role"], row_id)
+                self._supersede_others(row["unit_code"], row["type"], row["subject_key"], row_id)
             self._conn.execute(
                 "UPDATE calibrations SET status=?, activated_at=?, manifest=?, updated_at=? WHERE id=?",
                 (status, manifest.get("activated_at") if status == "active" else row["activated_at"],
@@ -179,16 +246,16 @@ class Store:
                 raise KeyError(row_id)
             self._conn.execute("DELETE FROM calibrations WHERE id=?", (row_id,))
             self._conn.commit()
-        target = self.artifact_dir(row["unit_code"], row["type"], row["camera_role"], row["run_id"])
+        target = self.artifact_dir(row["unit_code"], row["type"], row["subject_key"], row["run_id"])
         if target.is_dir():
             shutil.rmtree(target, ignore_errors=True)
         return self._row_to_dict(row)
 
-    def _supersede_others(self, unit_code: str, artifact_type: str, camera_role: str, keep_id: int) -> None:
+    def _supersede_others(self, unit_code: str, artifact_type: str, subject_key: str, keep_id: int) -> None:
         ts = now_iso()
         others = self._conn.execute(
-            "SELECT id, manifest FROM calibrations WHERE unit_code=? AND type=? AND camera_role=? AND status='active' AND id<>?",
-            (unit_code, artifact_type, camera_role, keep_id),
+            "SELECT id, manifest FROM calibrations WHERE unit_code=? AND type=? AND subject_key=? AND status='active' AND id<>?",
+            (unit_code, artifact_type, subject_key, keep_id),
         ).fetchall()
         for other in others:
             manifest = json.loads(other["manifest"])
@@ -214,11 +281,13 @@ class Store:
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
-        for key in ("quality", "files"):
+        for key in ("quality", "files", "subject"):
             try:
-                d[key] = json.loads(d[key]) if d.get(key) else ({} if key == "quality" else [])
+                d[key] = json.loads(d[key]) if d.get(key) else ({} if key in ("quality", "subject") else [])
             except ValueError:
-                d[key] = {} if key == "quality" else []
+                d[key] = {} if key in ("quality", "subject") else []
+        if d.get("type") in HAND_ARTIFACT_TYPES:
+            d["camera_role"] = None
         d.pop("manifest", None)
         return d
 
@@ -238,7 +307,7 @@ class Store:
             sql += " AND type=?"
             params.append(artifact_type)
         if camera_role:
-            sql += " AND camera_role=?"
+            sql += " AND subject_key=?"
             params.append(camera_role)
         if status:
             sql += " AND status=?"
@@ -247,10 +316,10 @@ class Store:
         return [self._row_to_dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
     def active_map(self, unit_code: str) -> dict[str, dict[str, dict[str, Any]]]:
-        """{type: {camera_role: row}} 当前生效项。"""
+        """{type: {subject_key: row}} 当前生效项。"""
         out: dict[str, dict[str, dict[str, Any]]] = {t: {} for t in ARTIFACT_TYPES}
         for row in self.list(unit_code, status="active"):
-            out.setdefault(row["type"], {})[row["camera_role"]] = row
+            out.setdefault(row["type"], {})[row["subject_key"]] = row
         return out
 
     def counts(self, unit_code: str) -> dict[str, int]:

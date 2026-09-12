@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from calib_cloud.app import create_app
 from calib_cloud.config import Settings
+from calib_cloud.store import Store
 
 TOKEN = "test-token"
 
@@ -98,6 +100,48 @@ def test_upload_list_download_and_active_semantics(tmp_path):
     assert c.get(f"/api/robots/units/H2-1336/calibrations/{cid}").status_code == 404
 
 
+def test_hand_artifacts_use_subject_key_and_independent_activation(tmp_path):
+    c = make_client(tmp_path)
+    payload = b'{"T_wrist2hand":[]}'
+    m, files = manifest(
+        "mount-1", status="active", artifact_type="hand_mount",
+        files={"mount_result.json": payload},
+    )
+    m.update({
+        "schema": "calib-manifest/2",
+        "artifact_id": "mount-artifact-1",
+        "subject": {
+            "kind": "hand",
+            "unit_code": "H2-1336",
+            "arm": "right_arm",
+            "hand_id": "qiangnao-1-right",
+            "hand_serial": None,
+        },
+        "subject_key": "right_arm__qiangnao-1-right",
+    })
+    m.pop("camera_role")
+
+    response = upload(c, m, files)
+
+    assert response.status_code == 201, response.text
+    item = response.json()["item"]
+    assert item["subject_key"] == "right_arm__qiangnao-1-right"
+    assert item["camera_role"] is None
+    detail = c.get("/api/robots/units/H2-1336").json()
+    assert detail["active"]["hand_mount"]["right_arm__qiangnao-1-right"]["run_id"] == "mount-1"
+    downloaded = c.get(
+        f"/api/robots/units/H2-1336/calibrations/{item['id']}/files/mount_result.json"
+    )
+    assert downloaded.content == payload
+
+    mismatched = dict(m)
+    mismatched["run_id"] = "mount-bad"
+    mismatched["subject_key"] = "left_arm__wrong-hand"
+    response = upload(c, mismatched, files)
+    assert response.status_code == 422
+    assert "不一致" in response.text
+
+
 def test_auth_and_validation(tmp_path):
     c = make_client(tmp_path)
     m, f = manifest()
@@ -131,3 +175,39 @@ def test_read_can_require_token(tmp_path):
     c = make_client(tmp_path, read_requires_token=True)
     assert c.get("/api/vendors").status_code == 401
     assert c.get("/api/vendors", headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 200
+
+
+def test_existing_v1_database_is_migrated_in_place(tmp_path):
+    db_path = tmp_path / "legacy.sqlite3"
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE calibrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_code TEXT NOT NULL, vendor TEXT, robot_model TEXT, type TEXT NOT NULL,
+            camera_role TEXT NOT NULL, camera_label TEXT, camera_serial TEXT, arm TEXT,
+            run_id TEXT NOT NULL, tool TEXT, tool_version TEXT, created_at TEXT,
+            status TEXT NOT NULL DEFAULT 'draft', activated_at TEXT, quality TEXT,
+            files TEXT, manifest TEXT NOT NULL, uploaded_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            UNIQUE (unit_code, type, camera_role, run_id)
+        );
+        CREATE TABLE units (
+            unit_code TEXT PRIMARY KEY, vendor TEXT, robot_model TEXT,
+            first_seen TEXT NOT NULL, last_seen TEXT NOT NULL
+        );
+    """)
+    conn.execute(
+        "INSERT INTO calibrations "
+        "(unit_code,type,camera_role,run_id,status,manifest,uploaded_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        ("H2-1336", "extrinsic", "head", "old-run", "active", "{}", "t", "t"),
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(db_path, tmp_path / "files")
+
+    row = store.list("H2-1336")[0]
+    assert row["subject_key"] == "head"
+    assert {"artifact_id", "subject_key", "subject"}.issubset(
+        {r["name"] for r in store._conn.execute("PRAGMA table_info(calibrations)")}
+    )

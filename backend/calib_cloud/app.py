@@ -31,7 +31,14 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import Settings, load_settings
-from .store import ARTIFACT_TYPES, STATUSES, Store, iter_manifest_files, normalize_type
+from .store import (
+    ARTIFACT_TYPES,
+    STATUSES,
+    Store,
+    iter_manifest_files,
+    manifest_subject,
+    normalize_type,
+)
 
 _UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SAFE_NAME_RE = re.compile(r"^[^/\\\x00]{1,255}$")
@@ -140,7 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         row = row_or_404(unit_code, calib_id)
         if not _SAFE_NAME_RE.match(name) or name in (".", ".."):
             raise fail(422, "非法文件名")
-        path = store.artifact_dir(row["unit_code"], row["type"], row["camera_role"], row["run_id"]) / name
+        path = store.artifact_dir(row["unit_code"], row["type"], row["subject_key"], row["run_id"]) / name
         if not path.is_file():
             raise fail(404, "文件不存在")
         return FileResponse(path, filename=name)
@@ -150,7 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/robots/units/{unit_code}/calibrations", dependencies=[Depends(require_write)])
     async def upload(unit_code: str, manifest: str = Form(...), files: list[UploadFile] = File(default=[])):
         """机器人侧推送一个产物包。manifest 里 files[].sha256 用于校验上传内容；
-        同 (unit_code, type, camera_role, run_id) 重复上传 = 覆盖（幂等）。"""
+        同 (unit_code, type, subject_key, run_id) 重复上传 = 覆盖（幂等）。"""
         unit_param(unit_code)
         try:
             data = json.loads(manifest)
@@ -164,12 +171,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if artifact_type is None:
             raise fail(422, f"manifest.type 只能是 {ARTIFACT_TYPES}")
         data["type"] = artifact_type
-        camera_role = str(data.get("camera_role") or "")
+        try:
+            subject, subject_key = manifest_subject(data, artifact_type)
+        except ValueError as exc:
+            raise fail(422, str(exc)) from exc
         run_id = str(data.get("run_id") or "")
-        if not _SAFE_NAME_RE.match(camera_role) or not _SAFE_NAME_RE.match(run_id) or "/" in camera_role + run_id:
-            raise fail(422, "camera_role / run_id 非法")
-        if camera_role in (".", "..") or run_id in (".", ".."):
-            raise fail(422, "camera_role / run_id 非法")
+        if not _SAFE_NAME_RE.match(subject_key) or not _SAFE_NAME_RE.match(run_id) or "/" in subject_key + run_id:
+            raise fail(422, "subject_key / run_id 非法")
+        if subject_key in (".", "..") or run_id in (".", ".."):
+            raise fail(422, "subject_key / run_id 非法")
+        data["subject"] = subject
+        data["subject_key"] = subject_key
 
         expected = {e["name"]: e for e in iter_manifest_files(data)}
         uploaded: dict[str, bytes] = {}
@@ -196,7 +208,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 data.setdefault("files", []).append(
                     {"name": name, "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()})
 
-        target = store.artifact_dir(unit_code, artifact_type, camera_role, run_id)
+        target = store.artifact_dir(unit_code, artifact_type, subject_key, run_id)
         tmp = target.with_name(target.name + ".uploading")
         if tmp.exists():
             shutil.rmtree(tmp)

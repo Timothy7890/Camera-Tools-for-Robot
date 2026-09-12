@@ -28,7 +28,7 @@ function setSectionEl(id, el) {
   else sectionEls.delete(id)
 }
 
-// 三个栏目在同一页面内连续排列，滚动时高亮当前经过的栏目
+// 各类产物在同一页面内连续排列，滚动时高亮当前经过的栏目
 let ticking = false
 function onScroll() {
   if (ticking) return
@@ -83,7 +83,13 @@ watch(unitCode, () => {
 
 // ---- 标定产物：一次拉全量，按栏目类型分组 ----
 // manifest 里的类型用下划线，栏目 id 用连字符
-const SECTION_TYPE = { extrinsic: 'extrinsic', intrinsic: 'intrinsic', 'camera-transform': 'camera_transform' }
+const SECTION_TYPE = {
+  extrinsic: 'extrinsic',
+  intrinsic: 'intrinsic',
+  'camera-transform': 'camera_transform',
+  'hand-mount': 'hand_mount',
+  'tcp-profile': 'tcp_profile',
+}
 
 const calibLoading = ref(false)
 const calibError = ref('')

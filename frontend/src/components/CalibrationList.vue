@@ -32,11 +32,16 @@ function fmtTime(iso) {
 const ROLE_LABEL = { head: '头部相机', waist: '腰部相机' }
 
 function cameraText(item) {
+  if (item.subject?.kind === 'hand') {
+    const arm = ARM[item.subject.arm] ?? ARM[String(item.subject.arm || '').replace('_arm', '')] ?? item.subject.arm
+    const hand = item.subject.hand_id || '-'
+    return `${arm || '-'} · ${hand}`
+  }
   const label = item.camera_label || ROLE_LABEL[item.camera_role] || item.camera_role
   return item.camera_serial ? `${label} · ${item.camera_serial}` : label
 }
 
-const ARM = { left: '左臂', right: '右臂' }
+const ARM = { left: '左臂', right: '右臂', left_arm: '左臂', right_arm: '右臂' }
 
 // 把 quality 压成一行摘要，不同类型字段不同
 function qualityText(item) {
@@ -51,6 +56,7 @@ function qualityText(item) {
   if (r?.mean != null) parts.push(`旋转 ${Number(r.mean).toFixed(2)}°`)
   if (q.width && q.height) parts.push(`${q.width}×${q.height}`)
   if (q.source) parts.push(String(q.source))
+  if (q.residual_mm?.rms != null) parts.push(`RMS ${Number(q.residual_mm.rms).toFixed(1)} mm`)
   return parts.join(' / ')
 }
 
@@ -69,7 +75,7 @@ function fileUrl(item, name) {
       <thead>
         <tr>
           <th>运行</th>
-          <th>相机</th>
+          <th>标定对象</th>
           <th>手臂</th>
           <th>时间</th>
           <th>质量</th>

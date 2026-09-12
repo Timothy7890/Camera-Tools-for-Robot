@@ -4,7 +4,8 @@
 `机器人编号 / 类型 / 相机位置 / 运行` 归档，供网页查看与下载。FastAPI + SQLite，无外部依赖。
 
 - 数据全部在一个目录（默认 `CALIB_DATA_DIR`）：`calib_cloud.sqlite3` + `files/<unit>/<type>/<role>/<run_id>/…`，备份即拷目录。
-- 同 `(unit_code, type, camera_role, run_id)` 重复上传 = 覆盖，幂等，机器人侧可放心重试。
+- 同 `(unit_code, type, subject_key, run_id)` 重复上传 = 覆盖，幂等，机器人侧可放心重试。
+- 产物类型包括相机侧 `extrinsic / intrinsic / camera_transform`，以及手部侧 `hand_mount / tcp_profile`。
 - "生效中"以机器人侧为准：推送 `status=active` 的产物时，云端自动把同位置其他 active 改为 `superseded`。
 
 ## 部署（systemd）
