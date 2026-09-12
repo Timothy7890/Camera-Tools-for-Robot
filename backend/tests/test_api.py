@@ -14,7 +14,12 @@ TOKEN = "test-token"
 
 
 def make_client(tmp_path: Path, **overrides) -> TestClient:
-    kwargs = dict(data_dir=tmp_path / "data", api_token=TOKEN, frontend_dist=tmp_path / "nodist")
+    kwargs = dict(
+        data_dir=tmp_path / "data",
+        api_token=TOKEN,
+        frontend_dist=tmp_path / "nodist",
+        models_dir=tmp_path / "nomodels",
+    )
     kwargs.update(overrides)
     settings = Settings(**kwargs)
     return TestClient(create_app(settings))
@@ -175,6 +180,19 @@ def test_read_can_require_token(tmp_path):
     c = make_client(tmp_path, read_requires_token=True)
     assert c.get("/api/vendors").status_code == 401
     assert c.get("/api/vendors", headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 200
+
+
+def test_models_are_served_when_configured(tmp_path):
+    models = tmp_path / "models"
+    urdf = models / "unitree" / "h2" / "urdf" / "robot.urdf"
+    urdf.parent.mkdir(parents=True)
+    urdf.write_text('<robot name="H2"/>', encoding="utf-8")
+    c = make_client(tmp_path, models_dir=models)
+
+    response = c.get("/models/unitree/h2/urdf/robot.urdf")
+
+    assert response.status_code == 200
+    assert response.text == '<robot name="H2"/>'
 
 
 def test_existing_v1_database_is_migrated_in_place(tmp_path):

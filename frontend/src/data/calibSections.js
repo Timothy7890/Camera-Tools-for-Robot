@@ -1,14 +1,9 @@
 // 标定文件分类。详情页左侧菜单与首页概览共用。
 export const calibSections = [
   {
-    id: 'extrinsic',
-    name: '外参标定文件',
-    desc: '相机相对机器人基座 / 末端的位姿变换',
-  },
-  {
-    id: 'intrinsic',
-    name: '内参标定文件',
-    desc: '相机焦距、主点、畸变系数等内部参数',
+    id: 'camera',
+    name: '相机标定',
+    desc: '以机器人三维模型查看相机位置、朝向与标定结果',
   },
   {
     id: 'camera-transform',
@@ -30,5 +25,6 @@ export const calibSections = [
 export const DEFAULT_SECTION_ID = calibSections[0].id
 
 export function findSection(id) {
-  return calibSections.find((s) => s.id === id) ?? null
+  const normalized = id === 'extrinsic' || id === 'intrinsic' ? 'camera' : id
+  return calibSections.find((s) => s.id === normalized) ?? null
 }

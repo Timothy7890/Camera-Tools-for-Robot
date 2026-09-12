@@ -22,6 +22,7 @@ curl http://127.0.0.1:8080/api/health     # {"ok":true,...,"write_enabled":true}
 - 配置全部在 `.env`（`EnvironmentFile`），改完 `sudo systemctl restart calib-cloud`。
 - 日志 `journalctl -u calib-cloud -f`；更新 `git pull && (cd frontend && npm run build) && sudo systemctl restart calib-cloud`。
 - 后端同源托管 `frontend/dist`，网页和 `/api` 同一个端口。
+- `models/` 通过 `/models/` 只读提供 URDF / STL，供相机标定三维查看器使用。
 - 服务器上没 npm 时，在别处 `npm run build` 后把 `frontend/dist` 拷到服务器同路径。
 
 ## 域名 + HTTPS（Nginx）
@@ -65,6 +66,7 @@ uvicorn calib_cloud.main:app --host 0.0.0.0 --port 8080
 | `CALIB_HOST` / `CALIB_PORT` | `0.0.0.0` / `8080` | 监听地址与端口（仅 systemd 单元使用） |
 | `CALIB_DATA_DIR` | `<repo>/data` | 数据目录 |
 | `CALIB_FRONTEND_DIST` | `<repo>/frontend/dist` | 前端构建目录，存在则托管 |
+| `CALIB_MODELS_DIR` | `<repo>/models` | URDF / STL 模型目录 |
 | `CALIB_CORS_ORIGINS` | `*` | 前后端分开部署时填前端域名 |
 | `CALIB_MAX_FILE_MB` | `64` | 单文件上传上限 |
 

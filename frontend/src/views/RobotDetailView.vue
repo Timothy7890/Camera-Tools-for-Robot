@@ -5,6 +5,7 @@ import { findRobotByUnitCode } from '../data/vendors'
 import { calibSections, findSection } from '../data/calibSections'
 import RobotPlaceholder from '../components/RobotPlaceholder.vue'
 import CalibrationList from '../components/CalibrationList.vue'
+import CameraCalibrationGallery from '../components/CameraCalibrationGallery.vue'
 import { fetchCalibrations } from '../api/robots'
 
 const route = useRoute()
@@ -67,7 +68,8 @@ onMounted(async () => {
   window.addEventListener('scroll', onScroll, { passive: true })
   await nextTick()
   const initial = String(route.params.section ?? '')
-  if (findSection(initial)) scrollToSection(initial, false)
+  const initialSection = findSection(initial)
+  if (initialSection) scrollToSection(initialSection.id, false)
   onScroll()
 })
 
@@ -84,8 +86,6 @@ watch(unitCode, () => {
 // ---- 标定产物：一次拉全量，按栏目类型分组 ----
 // manifest 里的类型用下划线，栏目 id 用连字符
 const SECTION_TYPE = {
-  extrinsic: 'extrinsic',
-  intrinsic: 'intrinsic',
   'camera-transform': 'camera_transform',
   'hand-mount': 'hand_mount',
   'tcp-profile': 'tcp_profile',
@@ -99,6 +99,10 @@ const itemsBySection = computed(() => {
   const out = {}
   for (const section of calibSections) out[section.id] = []
   for (const item of calibItems.value) {
+    if (item.type === 'extrinsic' || item.type === 'intrinsic') {
+      out.camera.push(item)
+      continue
+    }
     const sid = Object.keys(SECTION_TYPE).find((k) => SECTION_TYPE[k] === item.type)
     if (sid) out[sid].push(item)
   }
@@ -176,7 +180,16 @@ watch(unitCode, loadCalibrations, { immediate: true })
             <p class="block-desc">{{ section.desc }}</p>
           </header>
 
+          <CameraCalibrationGallery
+            v-if="section.id === 'camera'"
+            :unit-code="unitCode"
+            :robot="robot"
+            :items="itemsBySection.camera"
+            :loading="calibLoading"
+            :error="calibError"
+          />
           <CalibrationList
+            v-else
             :unit-code="unitCode"
             :items="itemsBySection[section.id]"
             :loading="calibLoading"

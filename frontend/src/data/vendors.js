@@ -9,7 +9,17 @@ export const vendors = [
     id: 'unitree',
     name: '宇树科技',
     robots: [
-      { id: 'h2', name: 'H2', subtitle: '人形本体', image: h2Image },
+      {
+        id: 'h2',
+        name: 'H2',
+        subtitle: '人形本体',
+        image: h2Image,
+        model: {
+          urdfUrl: '/models/unitree/h2/urdf/robot.urdf',
+          meshBaseUrl: '/models/unitree/h2/meshes/',
+          anchorLink: 'torso_link',
+        },
+      },
       { id: 'g1', name: 'G1', subtitle: '人形本体', image: g1Image },
       { id: 'g1d', name: 'G1D', subtitle: '轮式双臂', image: g1dImage },
     ],

@@ -250,6 +250,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ---------- 前端静态托管（前后端同源部署） ----------
 
+    # 模型与前端构建产物分开存放，避免 Vite 每次构建复制十几 MB 的 STL。
+    # URL 稳定，生产 Nginx 可对 /models/ 使用长期缓存。
+    if settings.models_dir.is_dir():
+        app.mount("/models", StaticFiles(directory=str(settings.models_dir)), name="models")
+
     dist = settings.frontend_dist
     if (dist / "index.html").is_file():
         if (dist / "assets").is_dir():

@@ -26,6 +26,9 @@ class Settings:
     # 前端构建产物目录；存在时由后端同源托管
     frontend_dist: Path = field(
         default_factory=lambda: Path(os.environ.get("CALIB_FRONTEND_DIST", str(_REPO / "frontend" / "dist"))))
+    # URDF / STL 模型目录；通过 /models 只读提供给网页三维查看器
+    models_dir: Path = field(
+        default_factory=lambda: Path(os.environ.get("CALIB_MODELS_DIR", str(_REPO / "models"))))
     # 允许跨域的来源（前端单独部署时用），逗号分隔；"*" 表示全部
     cors_origins: list[str] = field(default_factory=lambda: _split(os.environ.get("CALIB_CORS_ORIGINS", "*")))
     # 单个上传文件上限（MB）

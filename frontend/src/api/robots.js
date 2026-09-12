@@ -55,3 +55,7 @@ export function fetchCalibrationManifest(unitCode, id) {
 export function calibrationFileUrl(unitCode, id, name) {
   return `${BASE}/api/robots/units/${encodeURIComponent(unitCode)}/calibrations/${id}/files/${encodeURIComponent(name)}`
 }
+
+export async function fetchCalibrationFileJson(unitCode, id, name) {
+  return request(`/api/robots/units/${encodeURIComponent(unitCode)}/calibrations/${id}/files/${encodeURIComponent(name)}`)
+}
