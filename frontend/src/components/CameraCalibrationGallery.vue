@@ -232,14 +232,25 @@ onBeforeUnmount(() => {
             </header>
             <div class="camera-dialog-body">
               <div class="dialog-viewer">
-                <RobotUrdfViewer
-                  ref="viewer"
-                  :model="robot.model"
-                  :transform="selected.transform"
-                  :intrinsics="selected.intrinsics"
-                  :camera-role="selected.role"
-                  interactive
-                />
+                <Suspense>
+                  <RobotUrdfViewer
+                    ref="viewer"
+                    :model="robot.model"
+                    :transform="selected.transform"
+                    :intrinsics="selected.intrinsics"
+                    :camera-role="selected.role"
+                    interactive
+                  />
+                  <template #fallback>
+                    <div class="model-preparing">
+                      <span>正在加载模型</span>
+                      <div class="model-preparing-bar" role="progressbar" aria-label="模型加载进度">
+                        <span></span>
+                      </div>
+                      <small>首次加载稍慢</small>
+                    </div>
+                  </template>
+                </Suspense>
               </div>
               <aside class="camera-details">
                 <h3>标定详情</h3>
@@ -440,7 +451,47 @@ html.has-calib-dialog { overflow: hidden; }
 .camera-dialog .close-btn:hover { background: #f3f4f1; color: #222; }
 
 .camera-dialog-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
-.dialog-viewer { height: min(680px, calc(100vh - 126px)); min-height: 480px; }
+.dialog-viewer {
+  position: relative;
+  height: min(680px, calc(100vh - 126px));
+  min-height: 480px;
+  background: #f3f4f1;
+}
+
+.model-preparing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #555a53;
+  font-size: 13px;
+}
+
+.model-preparing-bar {
+  width: min(240px, calc(100% - 48px));
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe2dc;
+}
+
+.model-preparing-bar span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: #363a35;
+  animation: model-preparing 1.1s ease-in-out infinite;
+}
+
+.model-preparing small {
+  margin-top: 9px;
+  color: #9a9e98;
+  font-size: 12px;
+}
 
 .camera-details {
   max-height: min(680px, calc(100vh - 126px));
@@ -474,6 +525,11 @@ html.has-calib-dialog { overflow: hidden; }
 .viewer-dialog-enter-active .camera-dialog, .viewer-dialog-leave-active .camera-dialog { transition: transform .18s ease; }
 .viewer-dialog-enter-from, .viewer-dialog-leave-to { opacity: 0; }
 .viewer-dialog-enter-from .camera-dialog, .viewer-dialog-leave-to .camera-dialog { transform: translateY(8px) scale(.99); }
+
+@keyframes model-preparing {
+  from { transform: translateX(-155%); }
+  to { transform: translateX(265%); }
+}
 
 @media (max-width: 760px) {
   .camera-dialog-backdrop { padding: 10px; align-items: flex-start; }
