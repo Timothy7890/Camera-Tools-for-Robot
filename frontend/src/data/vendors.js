@@ -8,6 +8,7 @@ import h2WaistPreview from '../assets/cameras/h2-waist.webp'
 
 const H2_MODEL_PATH = '/models/unitree/h2'
 const ROBOT_ASSET_ORIGIN = 'https://robot-assets.timo0604.xyz:5000'
+const H2_URDF_VERSION = '20260913-2'
 
 export const vendors = [
   {
@@ -20,11 +21,11 @@ export const vendors = [
         subtitle: '人形本体',
         image: h2Image,
         model: {
-          urdfUrl: `${ROBOT_ASSET_ORIGIN}${H2_MODEL_PATH}/urdf/robot.urdf`,
+          urdfUrl: `${ROBOT_ASSET_ORIGIN}${H2_MODEL_PATH}/urdf/robot.urdf?v=${H2_URDF_VERSION}`,
           meshBaseUrl: `${ROBOT_ASSET_ORIGIN}${H2_MODEL_PATH}/meshes/`,
           fallbacks: [
             {
-              urdfUrl: `${H2_MODEL_PATH}/urdf/robot.urdf`,
+              urdfUrl: `${H2_MODEL_PATH}/urdf/robot.urdf?v=${H2_URDF_VERSION}`,
               meshBaseUrl: `${H2_MODEL_PATH}/meshes/`,
             },
           ],
