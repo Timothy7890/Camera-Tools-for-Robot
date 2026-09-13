@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from calib_cloud.app import create_app
 from calib_cloud.config import Settings
+from calib_cloud.preview import PreviewGenerator
 from calib_cloud.store import Store
 
 TOKEN = "test-token"
@@ -19,6 +20,7 @@ def make_client(tmp_path: Path, **overrides) -> TestClient:
         api_token=TOKEN,
         frontend_dist=tmp_path / "nodist",
         models_dir=tmp_path / "nomodels",
+        preview_enabled=False,
     )
     kwargs.update(overrides)
     settings = Settings(**kwargs)
@@ -195,6 +197,65 @@ def test_models_are_served_when_configured(tmp_path):
     assert response.text == '<robot name="H2"/>'
 
 
+def test_generated_preview_status_and_download(tmp_path):
+    c = make_client(tmp_path)
+    m, files = manifest()
+    response = upload(c, m, files)
+    assert response.status_code == 201
+    row = response.json()["item"]
+    store = c.app.state.store
+
+    store.set_preview_state(row["id"], "pending")
+    status_url = f"/api/robots/units/H2-1336/calibrations/{row['id']}/preview-status"
+    image_url = f"/api/robots/units/H2-1336/calibrations/{row['id']}/preview.webp"
+    assert c.get(status_url).json() == {"status": "pending", "preview_url": None}
+    assert c.get(image_url).status_code == 404
+
+    target = store.artifact_dir("H2-1336", "extrinsic", "head", "run-1") / "preview.webp"
+    target.write_bytes(b"RIFF-test-webp")
+    store.set_preview_state(row["id"], "ready", fingerprint="abc123def456")
+
+    state = c.get(status_url).json()
+    assert state["status"] == "ready"
+    assert state["preview_url"].endswith("/preview.webp?v=abc123def456")
+    image = c.get(image_url)
+    assert image.status_code == 200
+    assert image.headers["content-type"] == "image/webp"
+    assert image.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert image.content == b"RIFF-test-webp"
+
+
+def test_preview_generator_renders_extrinsic_record(tmp_path):
+    models = tmp_path / "models"
+    urdf = models / "unitree" / "h2" / "urdf" / "robot.urdf"
+    urdf.parent.mkdir(parents=True)
+    urdf.write_text('<robot name="H2"/>', encoding="utf-8")
+    (models / "unitree" / "h2" / "meshes").mkdir()
+    c = make_client(tmp_path, models_dir=models)
+    m, files = manifest()
+    m["T_cam2base"] = [
+        [1, 0, 0, 0.1],
+        [0, 1, 0, 0.2],
+        [0, 0, 1, 0.3],
+        [0, 0, 0, 1],
+    ]
+    row = upload(c, m, files).json()["item"]
+    captured = {}
+
+    def fake_runner(payload, output):
+        captured.update(payload)
+        output.write_bytes(b"RIFF-generated-webp")
+
+    generator = PreviewGenerator(c.app.state.settings, c.app.state.store, runner=fake_runner)
+    generator._generate(row["id"])
+
+    ready = c.app.state.store.get(row["id"])
+    assert ready["preview_status"] == "ready"
+    assert ready["preview_url"]
+    assert captured["transform"] == m["T_cam2base"]
+    assert captured["model"]["urdfUrl"] == "/models/unitree/h2/urdf/robot.urdf"
+
+
 def test_existing_v1_database_is_migrated_in_place(tmp_path):
     db_path = tmp_path / "legacy.sqlite3"
     conn = sqlite3.connect(db_path)
@@ -226,6 +287,6 @@ def test_existing_v1_database_is_migrated_in_place(tmp_path):
 
     row = store.list("H2-1336")[0]
     assert row["subject_key"] == "head"
-    assert {"artifact_id", "subject_key", "subject"}.issubset(
+    assert {"artifact_id", "subject_key", "subject", "preview_status", "preview_hash"}.issubset(
         {r["name"] for r in store._conn.execute("PRAGMA table_info(calibrations)")}
     )

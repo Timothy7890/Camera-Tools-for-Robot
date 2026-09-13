@@ -20,9 +20,10 @@ curl http://127.0.0.1:8080/api/health     # {"ok":true,...,"write_enabled":true}
 
 - 单元模板 `deploy/calib-cloud.service`，占位符 `__APP_DIR__` / `__USER__` 由脚本替换；手工装就自己 sed。
 - 配置全部在 `.env`（`EnvironmentFile`），改完 `sudo systemctl restart calib-cloud`。
-- 日志 `journalctl -u calib-cloud -f`；更新 `git pull && (cd frontend && npm run build) && sudo systemctl restart calib-cloud`。
+- 日志 `journalctl -u calib-cloud -f`；更新时构建 `frontend/`、执行 `renderer/npm ci`，再重启服务。
 - 后端同源托管 `frontend/dist`，网页和 `/api` 同一个端口。
 - `models/` 通过 `/models/` 只读提供 URDF / STL，供相机标定三维查看器使用。
+- 相机外参上传后由 `renderer/` 单线程异步生成 `preview.webp`；上传接口不等待截图完成。
 - 服务器上没 npm 时，在别处 `npm run build` 后把 `frontend/dist` 拷到服务器同路径。
 
 ## 域名 + HTTPS（Nginx）
@@ -69,6 +70,8 @@ uvicorn calib_cloud.main:app --host 0.0.0.0 --port 8080
 | `CALIB_MODELS_DIR` | `<repo>/models` | URDF / STL 模型目录 |
 | `CALIB_CORS_ORIGINS` | `*` | 前后端分开部署时填前端域名 |
 | `CALIB_MAX_FILE_MB` | `64` | 单文件上传上限 |
+| `CALIB_PREVIEW_ENABLED` | `1` | 上传后是否自动生成相机 WebP 预览图 |
+| `CALIB_PREVIEW_RENDERER_DIR` | `<repo>/renderer` | 无头浏览器截图器目录 |
 
 ## 接口
 
@@ -82,6 +85,8 @@ uvicorn calib_cloud.main:app --host 0.0.0.0 --port 8080
 | GET | `/api/robots/units/{unitCode}` | 详情：`counts{type}`、`active{type}{camera_role}` |
 | GET | `/api/robots/units/{unitCode}/calibrations?type=&camera_role=&status=` | 产物列表（`type` 接受 `camera-transform` 或 `camera_transform`） |
 | GET | `/api/robots/units/{unitCode}/calibrations/{id}` | 完整 manifest |
+| GET | `/api/robots/units/{unitCode}/calibrations/{id}/preview-status` | 预览生成状态与地址 |
+| GET | `/api/robots/units/{unitCode}/calibrations/{id}/preview.webp` | 自动生成的 WebP 预览图 |
 | GET | `/api/robots/units/{unitCode}/calibrations/{id}/files/{name}` | 下载文件 |
 
 写（必须 `Authorization: Bearer <CALIB_API_TOKEN>`）：

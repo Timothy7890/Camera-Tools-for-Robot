@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS calibrations (
     quality       TEXT,
     files         TEXT,
     manifest      TEXT NOT NULL,
+    preview_status TEXT NOT NULL DEFAULT 'none',
+    preview_hash   TEXT,
+    preview_error  TEXT,
+    preview_updated_at TEXT,
     uploaded_at   TEXT NOT NULL,
     updated_at    TEXT NOT NULL,
     UNIQUE (unit_code, type, camera_role, run_id)
@@ -127,6 +131,10 @@ class Store:
             "artifact_id": "TEXT",
             "subject_key": "TEXT",
             "subject": "TEXT",
+            "preview_status": "TEXT NOT NULL DEFAULT 'none'",
+            "preview_hash": "TEXT",
+            "preview_error": "TEXT",
+            "preview_updated_at": "TEXT",
         }
         for name, sql_type in additions.items():
             if name not in columns:
@@ -288,6 +296,14 @@ class Store:
                 d[key] = {} if key in ("quality", "subject") else []
         if d.get("type") in HAND_ARTIFACT_TYPES:
             d["camera_role"] = None
+        if d.get("preview_status") == "ready" and d.get("preview_hash"):
+            d["preview_url"] = (
+                f"/api/robots/units/{d['unit_code']}/calibrations/{d['id']}/preview.webp"
+                f"?v={d['preview_hash'][:12]}"
+            )
+        else:
+            d["preview_url"] = None
+        d.pop("preview_error", None)
         d.pop("manifest", None)
         return d
 
@@ -298,6 +314,36 @@ class Store:
     def get_manifest(self, row_id: int) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT manifest FROM calibrations WHERE id=?", (row_id,)).fetchone()
         return json.loads(row["manifest"]) if row else None
+
+    def set_preview_state(self, row_id: int, status: str, *, fingerprint: str | None = None,
+                          error: str | None = None) -> dict[str, Any] | None:
+        if status not in ("none", "pending", "ready", "error"):
+            raise ValueError(f"未知预览状态 {status!r}")
+        with self._lock:
+            current = self._conn.execute(
+                "SELECT preview_hash FROM calibrations WHERE id=?", (row_id,)
+            ).fetchone()
+            if current is None:
+                return None
+            preview_hash = fingerprint if fingerprint is not None else current["preview_hash"]
+            self._conn.execute(
+                "UPDATE calibrations SET preview_status=?, preview_hash=?, preview_error=?, "
+                "preview_updated_at=? WHERE id=?",
+                (status, preview_hash, error, now_iso(), row_id),
+            )
+            self._conn.commit()
+        return self.get(row_id)
+
+    def preview_candidates(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM calibrations WHERE type='extrinsic' "
+            "ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, id DESC"
+        ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def preferred_extrinsic(self, unit_code: str, camera_role: str) -> dict[str, Any] | None:
+        rows = self.list(unit_code, "extrinsic", camera_role)
+        return next((row for row in rows if row["status"] == "active"), rows[0] if rows else None)
 
     def list(self, unit_code: str, artifact_type: str | None = None, camera_role: str | None = None,
              status: str | None = None) -> list[dict[str, Any]]:

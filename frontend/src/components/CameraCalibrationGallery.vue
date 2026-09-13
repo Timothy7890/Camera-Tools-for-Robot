@@ -4,6 +4,7 @@ import {
   calibrationFileUrl,
   fetchCalibrationFileJson,
   fetchCalibrationManifest,
+  fetchCalibrationPreviewState,
 } from '../api/robots'
 
 const RobotUrdfViewer = defineAsyncComponent(() => import('./RobotUrdfViewer.vue'))
@@ -23,6 +24,7 @@ const hydrateError = ref('')
 const selected = ref(null)
 const viewer = ref(null)
 let requestGeneration = 0
+let previewTimer = null
 
 const cameraItems = computed(() => props.items.filter((item) =>
   item.type === 'extrinsic' || item.type === 'intrinsic',
@@ -76,12 +78,15 @@ async function hydrate() {
         intrinsics,
         extrinsicManifest,
         intrinsicManifest,
+        previewStatus: group.extrinsic?.preview_status || 'none',
+        generatedPreviewUrl: group.extrinsic?.preview_url || '',
       }
     }))
     if (generation !== requestGeneration) return
     hydrated.value = assets.sort((a, b) =>
       (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99) || a.label.localeCompare(b.label),
     )
+    schedulePreviewRefresh()
   } catch (error) {
     if (generation !== requestGeneration) return
     hydrateError.value = error?.message || '相机标定详情加载失败'
@@ -143,7 +148,32 @@ function fileUrl(file) {
 }
 
 function previewUrl(asset) {
-  return props.robot?.model?.previews?.[asset.role] || ''
+  return asset.generatedPreviewUrl || props.robot?.model?.previews?.[asset.role] || ''
+}
+
+function schedulePreviewRefresh() {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = null
+  if (hydrated.value.some((asset) => asset.extrinsic?.id && asset.previewStatus === 'pending')) {
+    previewTimer = setTimeout(refreshPreviewStatuses, 1800)
+  }
+}
+
+async function refreshPreviewStatuses() {
+  previewTimer = null
+  const generation = requestGeneration
+  const pending = hydrated.value.filter((asset) => asset.extrinsic?.id && asset.previewStatus === 'pending')
+  const results = await Promise.allSettled(pending.map(async (asset) => ({
+    asset,
+    state: await fetchCalibrationPreviewState(props.unitCode, asset.extrinsic.id),
+  })))
+  if (generation !== requestGeneration) return
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue
+    result.value.asset.previewStatus = result.value.state.status
+    result.value.asset.generatedPreviewUrl = result.value.state.preview_url || ''
+  }
+  schedulePreviewRefresh()
 }
 
 function open(asset) {
@@ -167,6 +197,7 @@ watch(selected, (value) => {
 })
 onBeforeUnmount(() => {
   requestGeneration += 1
+  if (previewTimer) clearTimeout(previewTimer)
   window.removeEventListener('keydown', onKeydown)
   document.documentElement.classList.remove('has-calib-dialog')
 })

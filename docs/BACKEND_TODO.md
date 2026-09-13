@@ -28,7 +28,7 @@
 
 ### 机器人模型文件（STL / URDF）
 
-- 当前由 `/models` 静态托管；相机卡片使用预生成 WebP，点击后才加载 URDF / STL。
+- 当前由 `/models` 静态托管；相机卡片使用后台按外参自动生成的 WebP，点击后才加载 URDF / STL。
 - 待提供 green-nas SSH 后：增加“DDNS 主地址 + 阿里云同源回退地址”，并准备 DDNS Docker / Nginx 配置。
 
 ### 尚未开始的页面

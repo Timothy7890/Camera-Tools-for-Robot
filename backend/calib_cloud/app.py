@@ -22,6 +22,7 @@ import json
 import mimetypes
 import re
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import Settings, load_settings
+from .preview import PreviewGenerator
 from .store import (
     ARTIFACT_TYPES,
     STATUSES,
@@ -56,8 +58,17 @@ def fail(status: int, message: str) -> HTTPException:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     store = Store(settings.db_path, settings.files_dir)
+    previews = PreviewGenerator(settings, store)
 
-    app = FastAPI(title="相机标定管理平台", version=__version__)
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        previews.start()
+        try:
+            yield
+        finally:
+            previews.stop()
+
+    app = FastAPI(title="相机标定管理平台", version=__version__, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins or ["*"],
@@ -66,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.store = store
+    app.state.preview_generator = previews
 
     # ---------- 鉴权 ----------
 
@@ -144,6 +156,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_calibration(unit_code: str, calib_id: int):
         row_or_404(unit_code, calib_id)
         return store.get_manifest(calib_id)
+
+    @app.get("/api/robots/units/{unit_code}/calibrations/{calib_id}/preview-status",
+             dependencies=[Depends(require_read)])
+    def preview_status(unit_code: str, calib_id: int):
+        row = row_or_404(unit_code, calib_id)
+        return {"status": row.get("preview_status") or "none", "preview_url": row.get("preview_url")}
+
+    @app.get("/api/robots/units/{unit_code}/calibrations/{calib_id}/preview.webp",
+             dependencies=[Depends(require_read)])
+    def preview_image(unit_code: str, calib_id: int):
+        row = row_or_404(unit_code, calib_id)
+        path = store.artifact_dir(
+            row["unit_code"], row["type"], row["subject_key"], row["run_id"]
+        ) / "preview.webp"
+        if row.get("preview_status") != "ready" or not path.is_file():
+            raise fail(404, "预览图尚未生成")
+        return FileResponse(
+            path,
+            media_type="image/webp",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     @app.get("/api/robots/units/{unit_code}/calibrations/{calib_id}/files/{name}",
              dependencies=[Depends(require_read)])
@@ -237,6 +270,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         data["cloud"]["remote_id"] = row["id"]
         (target / "manifest.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         row, _ = store.upsert(data)
+        previews.enqueue_for_upload(row)
+        row = store.get(row["id"])
         return JSONResponse({"ok": True, "created": created, "id": row["id"], "item": row}, status_code=201 if created else 200)
 
     @app.patch("/api/robots/units/{unit_code}/calibrations/{calib_id}", dependencies=[Depends(require_write)])

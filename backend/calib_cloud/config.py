@@ -33,6 +33,11 @@ class Settings:
     cors_origins: list[str] = field(default_factory=lambda: _split(os.environ.get("CALIB_CORS_ORIGINS", "*")))
     # 单个上传文件上限（MB）
     max_file_mb: int = field(default_factory=lambda: int(os.environ.get("CALIB_MAX_FILE_MB", "64")))
+    # 上传相机标定后，使用无头浏览器异步生成与交互视图一致的 WebP 预览图
+    preview_enabled: bool = field(
+        default_factory=lambda: os.environ.get("CALIB_PREVIEW_ENABLED", "1").strip() in ("1", "true", "yes"))
+    preview_renderer_dir: Path = field(
+        default_factory=lambda: Path(os.environ.get("CALIB_PREVIEW_RENDERER_DIR", str(_REPO / "renderer"))))
 
     @property
     def db_path(self) -> Path:

@@ -47,7 +47,15 @@ if [ ! -f "$APP_DIR/frontend/dist/index.html" ]; then
   fi
 fi
 
-# 3. 后端 venv
+# 3. 自动预览渲染器
+if command -v npm >/dev/null 2>&1; then
+  echo "==> 安装 WebP 预览渲染器"
+  (cd "$APP_DIR/renderer" && npm ci --no-audit --no-fund)
+else
+  echo "!! 没有 npm，自动预览图不可用；可设置 CALIB_PREVIEW_ENABLED=0" >&2
+fi
+
+# 4. 后端 venv
 echo "==> 安装后端依赖"
 if [ ! -x "$APP_DIR/backend/.venv/bin/python" ]; then
   "$PYTHON" -m venv "$APP_DIR/backend/.venv"
@@ -55,13 +63,13 @@ fi
 "$APP_DIR/backend/.venv/bin/pip" install -q --upgrade pip
 "$APP_DIR/backend/.venv/bin/pip" install -q -r "$APP_DIR/backend/requirements.txt"
 
-# 4. 数据目录 + 权限
+# 5. 数据目录 + 权限
 mkdir -p "$APP_DIR/data"
 chown -R "$RUN_USER":"$RUN_USER" "$APP_DIR/data" "$APP_DIR/backend/.venv"
 chown "$RUN_USER":"$RUN_USER" "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
 
-# 5. systemd
+# 6. systemd
 echo "==> 安装 systemd 单元 /etc/systemd/system/$SERVICE.service"
 sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__USER__|$RUN_USER|g" \
   "$APP_DIR/deploy/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
