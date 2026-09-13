@@ -1,33 +1,56 @@
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 
-// 同一机型的 URDF 与 STL 在整个页面生命周期只加载一次。卡片和弹窗 clone
-// 场景树，但共享 geometry / material，避免每颗相机重复下载和解析完整模型。
+// 同一机型的 URDF 与 STL 在整个页面生命周期只加载一次。弹窗 clone 场景树，
+// 但共享 geometry / material，避免每颗相机重复下载和解析完整模型。
 const templateCache = new Map()
 
-export async function cloneUrdfModel(model) {
+export async function cloneUrdfModel(model, onProgress) {
   const key = `${model.urdfUrl}|${model.meshBaseUrl}`
   if (!templateCache.has(key)) {
-    templateCache.set(key, loadUrdfTemplate(model).catch((error) => {
-      templateCache.delete(key)
-      throw error
-    }))
+    const entry = { progress: 0, listeners: new Set(), promise: null }
+    const report = (value) => {
+      entry.progress = Math.max(entry.progress, Math.min(100, Math.round(value)))
+      for (const listener of entry.listeners) listener(entry.progress)
+    }
+    entry.promise = loadUrdfTemplate(model, report)
+      .then((template) => {
+        report(100)
+        return template
+      })
+      .catch((error) => {
+        templateCache.delete(key)
+        throw error
+      })
+    templateCache.set(key, entry)
   }
-  const template = await templateCache.get(key)
-  return template.clone(true)
+  const entry = templateCache.get(key)
+  if (onProgress) {
+    entry.listeners.add(onProgress)
+    onProgress(entry.progress)
+  }
+  try {
+    const template = await entry.promise
+    return template.clone(true)
+  } finally {
+    if (onProgress) entry.listeners.delete(onProgress)
+  }
 }
 
-async function loadUrdfTemplate(model) {
+async function loadUrdfTemplate(model, report) {
+  report(2)
   const response = await fetch(model.urdfUrl)
   if (!response.ok) throw new Error(`URDF 加载失败（HTTP ${response.status}）`)
   const xml = new DOMParser().parseFromString(await response.text(), 'application/xml')
   if (xml.querySelector('parsererror')) throw new Error('URDF 解析失败')
+  report(7)
 
   const linkGroups = new Map()
   const jointsByParent = new Map()
   const childLinks = new Set()
   const meshTasks = []
   const loader = new STLLoader()
+  let loadedMeshes = 0
 
   for (const linkEl of xml.querySelectorAll('link')) {
     const linkName = linkEl.getAttribute('name')
@@ -55,6 +78,9 @@ async function loadUrdfTemplate(model) {
           visualGroup.add(mesh)
         } catch (error) {
           console.warn(`模型网格加载失败：${filename}`, error)
+        } finally {
+          loadedMeshes += 1
+          report(7 + (loadedMeshes / meshTasks.length) * 91)
         }
       })
       group.add(visualGroup)
@@ -82,6 +108,7 @@ async function loadUrdfTemplate(model) {
   root.name = 'urdf-root'
   root.add(linkGroups.get(rootLink))
   attachChildren(rootLink)
+  if (!meshTasks.length) report(98)
   await runLimited(meshTasks, 5)
   root.updateMatrixWorld(true)
   return root

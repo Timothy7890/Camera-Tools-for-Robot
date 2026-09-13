@@ -14,6 +14,7 @@ const props = defineProps({
 
 const host = ref(null)
 const loading = ref(true)
+const progress = ref(0)
 const error = ref('')
 let renderer = null
 let scene = null
@@ -26,12 +27,15 @@ let generation = 0
 async function build() {
   const current = ++generation
   loading.value = true
+  progress.value = 0
   error.value = ''
   await nextTick()
   try {
     if (!renderer) setupRenderer()
     if (robot) scene.remove(robot)
-    robot = await cloneUrdfModel(props.model)
+    robot = await cloneUrdfModel(props.model, (value) => {
+      if (current === generation) progress.value = value
+    })
     if (current !== generation) return
     attachCameraFrame(
       robot,
@@ -156,8 +160,23 @@ defineExpose({ resetView })
 <template>
   <div ref="host" class="urdf-viewer" :class="{ 'is-interactive': interactive }">
     <div v-if="loading" class="viewer-state">
-      <span class="viewer-spinner"></span>
-      <span>正在加载 URDF</span>
+      <div class="viewer-loading-copy">
+        <div class="viewer-loading-line">
+          <span>正在加载模型</span>
+          <span>{{ progress }}%</span>
+        </div>
+        <div
+          class="viewer-progress"
+          role="progressbar"
+          aria-label="模型加载进度"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="progress"
+        >
+          <span :style="{ width: `${progress}%` }"></span>
+        </div>
+        <small>首次加载稍慢</small>
+      </div>
     </div>
     <div v-else-if="error" class="viewer-state is-error">{{ error }}</div>
     <div v-else-if="interactive" class="viewer-hint">拖动旋转 · 滚轮缩放 · 右键平移</div>
@@ -197,7 +216,6 @@ defineExpose({ resetView })
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
   color: #8a8e87;
   font-size: 13px;
 }
@@ -208,13 +226,40 @@ defineExpose({ resetView })
   text-align: center;
 }
 
-.viewer-spinner {
-  width: 15px;
-  height: 15px;
-  border: 2px solid #d7dad4;
-  border-top-color: #666b64;
-  border-radius: 50%;
-  animation: viewer-spin .8s linear infinite;
+.viewer-loading-copy {
+  width: min(240px, calc(100% - 48px));
+}
+
+.viewer-loading-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #555a53;
+  font-size: 13px;
+}
+
+.viewer-progress {
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe2dc;
+}
+
+.viewer-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #363a35;
+  transition: width .18s ease;
+}
+
+.viewer-loading-copy small {
+  display: block;
+  margin-top: 9px;
+  color: #9a9e98;
+  text-align: center;
+  font-size: 12px;
 }
 
 .viewer-hint {
@@ -231,5 +276,4 @@ defineExpose({ resetView })
   pointer-events: none;
 }
 
-@keyframes viewer-spin { to { transform: rotate(360deg); } }
 </style>

@@ -28,8 +28,8 @@
 
 ### 机器人模型文件（STL / URDF）
 
-- `models/<vendorId>/<robotId>/{meshes,urdf}/` 仅目录骨架；未提供接口。需要时加
-  `GET /api/robots/{robotId}/models` 并做静态托管；放入模型前先启用 Git LFS（见 `models/README.md`）
+- 当前由 `/models` 静态托管；相机卡片使用预生成 WebP，点击后才加载 URDF / STL。
+- 待提供 green-nas SSH 后：增加“DDNS 主地址 + 阿里云同源回退地址”，并准备 DDNS Docker / Nginx 配置。
 
 ### 尚未开始的页面
 

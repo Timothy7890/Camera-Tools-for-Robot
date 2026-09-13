@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import {
   calibrationFileUrl,
   fetchCalibrationFileJson,
   fetchCalibrationManifest,
 } from '../api/robots'
-import RobotUrdfViewer from './RobotUrdfViewer.vue'
+
+const RobotUrdfViewer = defineAsyncComponent(() => import('./RobotUrdfViewer.vue'))
 
 const props = defineProps({
   unitCode: { type: String, required: true },
@@ -141,6 +142,10 @@ function fileUrl(file) {
   return calibrationFileUrl(props.unitCode, file.record.id, file.name)
 }
 
+function previewUrl(asset) {
+  return props.robot?.model?.previews?.[asset.role] || ''
+}
+
 function open(asset) {
   selected.value = asset
   document.documentElement.classList.add('has-calib-dialog')
@@ -184,16 +189,17 @@ onBeforeUnmount(() => {
         @click="open(asset)"
       >
         <div class="camera-preview">
-          <RobotUrdfViewer
-            v-if="robot?.model && asset.transform"
-            :model="robot.model"
-            :transform="asset.transform"
-            :intrinsics="asset.intrinsics"
-            :camera-role="asset.role"
+          <img
+            v-if="previewUrl(asset)"
+            :src="previewUrl(asset)"
+            :alt="`${asset.label}在机器人上的位置`"
+            width="1200"
+            height="800"
+            decoding="async"
           />
           <div v-else class="preview-unavailable">
-            <span>3D 预览不可用</span>
-            <small>{{ !robot?.model ? '该机型尚未配置 URDF' : '缺少相机外参' }}</small>
+            <span>预览不可用</span>
+            <small>{{ !robot?.model ? '该机型尚未配置模型' : '缺少预览图' }}</small>
           </div>
           <span v-if="robot?.model && asset.transform" class="preview-action">点击查看 3D</span>
         </div>
@@ -292,6 +298,13 @@ onBeforeUnmount(() => {
   height: 292px;
   overflow: hidden;
   background: #f3f4f1;
+}
+
+.camera-preview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .preview-action {

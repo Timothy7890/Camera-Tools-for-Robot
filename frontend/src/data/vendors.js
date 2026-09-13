@@ -3,6 +3,8 @@
 import h2Image from '../assets/robots/h2.png'
 import g1Image from '../assets/robots/g1.png'
 import g1dImage from '../assets/robots/g1d.png'
+import h2HeadPreview from '../assets/cameras/h2-head.webp'
+import h2WaistPreview from '../assets/cameras/h2-waist.webp'
 
 export const vendors = [
   {
@@ -18,6 +20,10 @@ export const vendors = [
           urdfUrl: '/models/unitree/h2/urdf/robot.urdf',
           meshBaseUrl: '/models/unitree/h2/meshes/',
           anchorLink: 'torso_link',
+          previews: {
+            head: h2HeadPreview,
+            waist: h2WaistPreview,
+          },
         },
       },
       { id: 'g1', name: 'G1', subtitle: '人形本体', image: g1Image },
