@@ -1,0 +1,32 @@
+services:
+  robot-assets:
+    image: nginx:1.29-alpine
+    container_name: robot-assets
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/robot-assets/nginx-entrypoint.sh"]
+    volumes:
+      - ./assets-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-entrypoint.sh:/opt/robot-assets/nginx-entrypoint.sh:ro
+      - ./models:/srv/models:ro
+      - ./acme:/acme.sh:ro
+    networks:
+      - web
+
+  robot-assets-acme:
+    image: neilpang/acme.sh:latest
+    container_name: robot-assets-acme
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/robot-assets/acme-renew.sh"]
+    environment:
+      ASSET_DOMAIN: robot-assets.timo0604.xyz
+    volumes:
+      - ./acme-renew.sh:/opt/robot-assets/acme-renew.sh:ro
+      - ./acme:/acme.sh
+      - /opt/ddns-go/.ddns_go_config.yaml:/run/secrets/ddns-go.yaml:ro
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
+    name: my-web-server_web

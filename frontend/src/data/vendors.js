@@ -6,6 +6,9 @@ import g1dImage from '../assets/robots/g1d.png'
 import h2HeadPreview from '../assets/cameras/h2-head.webp'
 import h2WaistPreview from '../assets/cameras/h2-waist.webp'
 
+const H2_MODEL_PATH = '/models/unitree/h2'
+const ROBOT_ASSET_ORIGIN = 'https://robot-assets.timo0604.xyz:5000'
+
 export const vendors = [
   {
     id: 'unitree',
@@ -17,8 +20,14 @@ export const vendors = [
         subtitle: '人形本体',
         image: h2Image,
         model: {
-          urdfUrl: '/models/unitree/h2/urdf/robot.urdf',
-          meshBaseUrl: '/models/unitree/h2/meshes/',
+          urdfUrl: `${ROBOT_ASSET_ORIGIN}${H2_MODEL_PATH}/urdf/robot.urdf`,
+          meshBaseUrl: `${ROBOT_ASSET_ORIGIN}${H2_MODEL_PATH}/meshes/`,
+          fallbacks: [
+            {
+              urdfUrl: `${H2_MODEL_PATH}/urdf/robot.urdf`,
+              meshBaseUrl: `${H2_MODEL_PATH}/meshes/`,
+            },
+          ],
           anchorLink: 'torso_link',
           previews: {
             head: h2HeadPreview,

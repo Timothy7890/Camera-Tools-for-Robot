@@ -6,14 +6,15 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 const templateCache = new Map()
 
 export async function cloneUrdfModel(model, onProgress) {
-  const key = `${model.urdfUrl}|${model.meshBaseUrl}`
+  const sources = modelSources(model)
+  const key = sources.map((source) => `${source.urdfUrl}|${source.meshBaseUrl}`).join('||')
   if (!templateCache.has(key)) {
     const entry = { progress: 0, listeners: new Set(), promise: null }
     const report = (value) => {
       entry.progress = Math.max(entry.progress, Math.min(100, Math.round(value)))
       for (const listener of entry.listeners) listener(entry.progress)
     }
-    entry.promise = loadUrdfTemplate(model, report)
+    entry.promise = loadUrdfTemplate(sources, report)
       .then((template) => {
         report(100)
         return template
@@ -37,11 +38,18 @@ export async function cloneUrdfModel(model, onProgress) {
   }
 }
 
-async function loadUrdfTemplate(model, report) {
+async function loadUrdfTemplate(sources, report) {
   report(2)
-  const response = await fetch(model.urdfUrl)
-  if (!response.ok) throw new Error(`URDF 加载失败（HTTP ${response.status}）`)
-  const xml = new DOMParser().parseFromString(await response.text(), 'application/xml')
+  const urdfResult = await loadFromSources(
+    sources,
+    (source) => source.urdfUrl,
+    async (response) => response.text(),
+  )
+  const preferredSources = [
+    urdfResult.source,
+    ...sources.filter((source) => source !== urdfResult.source),
+  ]
+  const xml = new DOMParser().parseFromString(urdfResult.value, 'application/xml')
   if (xml.querySelector('parsererror')) throw new Error('URDF 解析失败')
   report(7)
 
@@ -66,10 +74,14 @@ async function loadUrdfTemplate(model, report) {
       const scale = parseVector(meshEl.getAttribute('scale'), [1, 1, 1])
       const filename = meshEl.getAttribute('filename') || ''
       const material = materialFromVisual(visualEl)
-      const meshUrl = resolveMeshUrl(model.meshBaseUrl, filename)
       meshTasks.push(async () => {
         try {
-          const geometry = await loader.loadAsync(meshUrl)
+          const result = await loadFromSources(
+            preferredSources,
+            (source) => resolveMeshUrl(source.meshBaseUrl, filename),
+            async (response) => response.arrayBuffer(),
+          )
+          const geometry = loader.parse(result.value)
           geometry.computeVertexNormals()
           const mesh = new THREE.Mesh(geometry, material)
           mesh.scale.set(...scale)
@@ -125,6 +137,41 @@ async function loadUrdfTemplate(model, report) {
       parentGroup.add(originGroup)
       attachChildren(joint.child)
     }
+  }
+}
+
+function modelSources(model) {
+  return [model, ...(model.fallbacks || [])].filter((source) =>
+    source?.urdfUrl && source?.meshBaseUrl,
+  )
+}
+
+async function loadFromSources(sources, urlFor, consume) {
+  let lastError = null
+  for (const source of sources) {
+    const url = urlFor(source)
+    try {
+      const response = await fetchWithConnectTimeout(url)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return { value: await consume(response), source }
+    } catch (error) {
+      lastError = error
+      console.warn(`资源加载失败，尝试备用地址：${url}`, error)
+    }
+  }
+  throw new Error(`模型资源加载失败${lastError?.message ? `：${lastError.message}` : ''}`)
+}
+
+async function fetchWithConnectTimeout(url, timeoutMs = 5000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    clearTimeout(timer)
+    return response
+  } catch (error) {
+    clearTimeout(timer)
+    throw error
   }
 }
 
