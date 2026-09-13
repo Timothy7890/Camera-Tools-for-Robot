@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import re
 import shutil
 from pathlib import Path
@@ -43,6 +44,9 @@ from .store import (
 _UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SAFE_NAME_RE = re.compile(r"^[^/\\\x00]{1,255}$")
 _VENDORS = json.loads((Path(__file__).with_name("vendors.json")).read_text(encoding="utf-8"))
+
+# 部分精简 Linux 环境没有预置 WebP MIME，显式注册以便静态预览图正确返回。
+mimetypes.add_type("image/webp", ".webp")
 
 
 def fail(status: int, message: str) -> HTTPException:
